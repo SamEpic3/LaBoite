@@ -1,13 +1,20 @@
 * { box-sizing: border-box; }
 
+html { background-color: #0b4f3f; height: 100%; }
+
 html, body {
     width: 100%;
     height: 100%;
     margin: 0;
     overflow: hidden;
     font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
-    background: radial-gradient(ellipse at 50% 35%, #1b9474 0%, #0d5f4b 60%, #0a4a3b 100%) fixed;
-    background-color: #0d5f4b;
+    /* Le haut et le bas finissent sur la couleur de bord : c'est elle que l'iPhone (iOS 26) met
+       sous la barre d'état et la barre d'accueil, donc le dégradé ne coupe pas. */
+    background-color: #0b4f3f;
+    background-image:
+        linear-gradient(to bottom, #0b4f3f calc(env(safe-area-inset-top) + 24px), transparent calc(env(safe-area-inset-top) + 22%),
+                        transparent 80%, #0b4f3f 100%),
+        radial-gradient(ellipse at 50% 40%, #1b9474 0%, #0d5f4b 60%, #0a4a3b 100%);
     color: white;
     -webkit-tap-highlight-color: transparent;
 }
@@ -20,21 +27,25 @@ canvas {
     height: 100%;
     display: block;
     touch-action: manipulation;
+    background-color: #0b4f3f;
     -webkit-user-select: none;
     user-select: none;
 }
 
 /* Bande unie sous la barre d'état de l'iPhone : évite la zone floue en haut de l'écran. */
+/* Bande fixe en haut, de la couleur de bord : Safari s'en sert pour la zone de la barre d'état
+   (couleur unie au lieu du flou), et le dégradé du jeu commence avec la même couleur. */
 .barre-haut {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    height: env(safe-area-inset-top);
-    background: #0d5f4b;
-    z-index: 50;
+    height: calc(env(safe-area-inset-top) + 24px);
+    background-color: #0b4f3f;
+    z-index: 1;
     pointer-events: none;
 }
+.ecran, .info, .pointage, .bouton-coin { z-index: 2; }
 
 /* ----- Menus ----- */
 

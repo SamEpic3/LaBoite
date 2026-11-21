@@ -4,6 +4,7 @@
     "use strict";
     const { SORTES, VALEURS, memeCarte } = Regles;
 
+    const COULEUR_BORD = "#0b4f3f"; // même couleur que le fond de la page (voir style.css)
     const SPRITE_L = 100;
     const SPRITE_H = 144;
     const DUREE_CARTE = 300; // ms
@@ -61,6 +62,7 @@
                 ...avatars.map((a) => chargerImage(`images/avatars/${a}.png`)),
             ]);
             this.imgCartes = cartes;
+            this.sortes = cartes ? this.extraireSortes(cartes) : null;
             this.imgBoite = boite;
             this.avatars = {};
             avatars.forEach((a, i) => (this.avatars[a] = imgs[i]));
@@ -82,6 +84,24 @@
                 bas: parseFloat(cs.paddingBottom) || 0,
                 gauche: parseFloat(cs.paddingLeft) || 0,
             };
+        }
+
+        // Les 4 petites sortes du coin des cartes, sur fond transparent (pour les recopier sous le chiffre).
+        extraireSortes(img) {
+            const c = document.createElement("canvas");
+            c.width = 34;
+            c.height = 36 * 4;
+            const g = c.getContext("2d");
+            SORTES.forEach((suit, s) => g.drawImage(img, SPRITE_L + 55, s * SPRITE_H + 4, 34, 36, 0, s * 36, 34, 36));
+            try {
+                const d = g.getImageData(0, 0, c.width, c.height);
+                for (let i = 0; i < d.data.length; i += 4) {
+                    const clair = Math.min(d.data[i], d.data[i + 1], d.data[i + 2]);
+                    if (clair > 200) d.data[i + 3] = Math.max(0, 255 - (clair - 200) * 4.6); // le blanc devient transparent
+                }
+                g.putImageData(d, 0, 0);
+            } catch (e) {}
+            return c;
         }
 
         redimensionner() {
@@ -110,7 +130,7 @@
             this.carteL = (this.carteH * SPRITE_L) / SPRITE_H;
             this.ecartV = this.carteH * 0.2;
             // Cartes de la main : plus grandes que celles de la table, pour bien les voir et les toucher
-            this.mainH = Math.max(this.carteH, Math.min(H * 0.16, ((L / 6.2) * SPRITE_H) / SPRITE_L, 115));
+            this.mainH = Math.max(this.carteH, Math.min(H * 0.19, ((L / 5.2) * SPRITE_H) / SPRITE_L, 120));
             this.mainL = (this.mainH * SPRITE_L) / SPRITE_H;
             this.avatar = Math.max(40, Math.min(100, Math.min(L, H) * 0.11));
             this.marge = Math.max(8, Math.min(L, H) * 0.022);
@@ -148,6 +168,19 @@
             const esp = this.carteL * 0.15;
             const largeur = 4 * this.carteL + 3 * esp;
             const gauche = this.x0 + this.l / 2 - largeur / 2;
+            const haut = this.hautTable();
+            const basMain = this.hautMainReserve() - this.texte * 0.6;
+            const dispo = basMain - haut;
+            const ecart = Math.max(this.carteH * 0.1, Math.min(this.ecartV, (dispo - this.carteH) / 12));
+            const hauteur = this.carteH + 12 * ecart;
+            const y0 = haut + Math.max(0, (dispo - hauteur) / 2);
+            return { gauche, esp, ecart, y0 };
+        }
+
+        // Bas des joueurs placés au-dessus de la table (là où la table peut commencer)
+        hautTable() {
+            const largeur = 4 * this.carteL * 1.15;
+            const gauche = this.x0 + this.l / 2 - largeur / 2;
             let haut = Math.max(this.y0, this.hautReserve || 0) + this.marge;
             this.vue.joueurs.forEach((j, i) => {
                 if (i === this.vue.moi) return;
@@ -155,12 +188,7 @@
                 const chevauche = p.x < gauche + largeur + 20 && p.x + this.avatar > gauche - 20;
                 if (chevauche) haut = Math.max(haut, p.y + this.avatar + this.texte * 1.6);
             });
-            const basMain = this.hautMainReserve() - this.texte * 0.6;
-            const dispo = basMain - haut;
-            const ecart = Math.max(this.carteH * 0.1, Math.min(this.ecartV, (dispo - this.carteH) / 12));
-            const hauteur = this.carteH + 12 * ecart;
-            const y0 = haut + Math.max(0, (dispo - hauteur) / 2);
-            return { gauche, esp, ecart, y0 };
+            return haut;
         }
 
         posTable(carte) {
@@ -170,64 +198,97 @@
             return { x, y };
         }
 
-        // Comment placer n cartes dans la main : assez d'espace entre les cartes pour les toucher
-        // facilement; s'il en manque, on fait plusieurs rangées qui se chevauchent.
-        disposerMain(n) {
-            const cl = this.mainL;
-            const ch = this.mainH;
-            const dispo = this.l - 2 * this.marge - cl;
-            const pasMin = cl * 0.55; // au moins 55 % de chaque carte est visible
-            const parRangee = n > 1 ? Math.max(1, Math.floor(dispo / pasMin) + 1) : 1;
-            const rangees = Math.max(1, Math.ceil(n / parRangee));
-            const decalV = ch * 0.44; // on voit le haut des cartes des rangées du fond
-            const souleve = rangees === 1 ? ch * 0.16 : 0;
-            return { cl, ch, rangees, parRangee: Math.ceil(n / rangees), decalV, souleve, dispo };
+        // Taille et nombre de rangées de la main, choisis une fois pour la manche (selon le nombre
+        // de cartes du départ) : les plus grandes cartes possible qui laissent la table visible.
+        // Chaque carte montre au moins la moitié de sa largeur (son chiffre et sa sorte).
+        parametresMain() {
+            const n = this.vue.joueurs.length;
+            const cle = [this.lTotal, this.hTotal, n, this.hautReserve].join();
+            if (this.pm && this.pm.cle === cle) return this.pm;
+            const nDepart = Math.ceil(52 / n);
+            const tableMin = this.carteH * 2.3 + this.texte;
+            const vmax = this.basMain() - this.hautTable() - tableMin;
+            let choix = null;
+            for (let ch = this.mainH; ch >= this.carteH * 0.9; ch *= 0.95) {
+                const cl = (ch * SPRITE_L) / SPRITE_H;
+                const dispo = this.l - 2 * this.marge - cl;
+                const cap = Math.max(1, Math.floor(dispo / (cl * 0.5)) + 1);
+                // 1 à 3 rangées égales, ou 4 rangées : une par sorte
+                for (const rangees of [1, 2, 3, 4]) {
+                    if (rangees < 4 && Math.ceil(nDepart / rangees) > cap) continue;
+                    const decalV = ch * 0.5;
+                    const souleve = rangees === 1 ? ch * 0.16 : 0;
+                    const hauteur = ch + (rangees - 1) * decalV + souleve;
+                    choix = { cle, ch, cl, dispo, cap, rangees, decalV, hauteur };
+                    if (hauteur <= vmax) return (this.pm = choix);
+                    break; // à cette taille, plus de rangées serait encore plus haut
+                }
+            }
+            return (this.pm = choix);
+        }
+
+        rangeesMain(main) {
+            const pm = this.parametresMain();
+            if (main.length <= pm.cap) return [main];
+            if (pm.rangees === 4) {
+                const rangees = [];
+                SORTES.forEach((suit) => {
+                    const sorte = main.filter((c) => c.suit === suit);
+                    for (let k = 0; k < sorte.length; k += pm.cap) rangees.push(sorte.slice(k, k + pm.cap));
+                });
+                return rangees;
+            }
+            const nb = Math.ceil(main.length / pm.cap);
+            const parRangee = Math.ceil(main.length / nb);
+            const rangees = [];
+            for (let k = 0; k < main.length; k += parRangee) rangees.push(main.slice(k, k + parRangee));
+            return rangees;
         }
 
         basMain() {
             return this.posAvatar(this.vue.moi).y - this.texte * 1.6;
         }
 
-        // Haut de la zone de la main, calculé pour le nombre de cartes du début de la manche :
-        // la table ne bouge pas quand la main rapetisse.
         hautMainReserve() {
-            const nDepart = Math.ceil(52 / this.vue.joueurs.length);
-            const d = this.disposerMain(Math.max(nDepart, this.vue.main.length));
-            return this.basMain() - d.ch - (d.rangees - 1) * d.decalV - d.souleve;
+            return this.basMain() - this.parametresMain().hauteur;
         }
 
         posMain() {
-            const main = this.vue.main;
-            const n = main.length;
-            const d = this.disposerMain(n);
+            const rangees = this.rangeesMain(this.vue.main);
+            const pm = this.parametresMain();
+            const { cl, dispo } = pm;
+            const m = { ch: pm.ch, decalV: pm.decalV, souleve: rangees.length === 1 ? pm.ch * 0.16 : 0 };
             const monTour = this.vue.tour === this.vue.moi;
             const bas = this.basMain();
             const res = [];
-            for (let r = 0; r < d.rangees; r++) {
-                const cartes = main.slice(r * d.parRangee, (r + 1) * d.parRangee);
+            rangees.forEach((cartes, r) => {
                 const k = cartes.length;
-                const pas = k > 1 ? Math.min(d.cl * 0.85, d.dispo / (k - 1)) : 0;
-                const total = d.cl + pas * (k - 1);
+                const pas = k > 1 ? Math.min(cl * 0.85, dispo / (k - 1)) : 0;
+                const total = cl + pas * (k - 1);
                 const xg = this.x0 + this.l / 2 - total / 2;
-                const y = bas - d.ch - (d.rangees - 1 - r) * d.decalV;
+                const y = bas - m.ch - (rangees.length - 1 - r) * m.decalV;
                 cartes.forEach((carte, j) => {
                     const jouable = monTour && this.vue.jouables.some((c) => memeCarte(c, carte));
-                    res.push({ carte, jouable, x: xg + j * pas, y: y - (jouable ? d.souleve : 0), l: d.cl, h: d.ch });
+                    res.push({ carte, jouable, x: xg + j * pas, y: y - (jouable ? m.souleve : 0), l: cl, h: m.ch, main: true });
                 });
-            }
+            });
             return res;
         }
 
         // ----- Dessin -----
 
-        dessinerCarte(carte, x, y, assombrie = false, carteL = this.carteL, carteH = this.carteH, jouable = false) {
+        dessinerCarte(carte, x, y, assombrie = false, carteL = this.carteL, carteH = this.carteH, jouable = false, enMain = false) {
             const { ctx } = this;
             if (this.imgCartes) {
-                ctx.drawImage(
-                    this.imgCartes,
-                    VALEURS.indexOf(carte.value) * SPRITE_L, SORTES.indexOf(carte.suit) * SPRITE_H,
-                    SPRITE_L, SPRITE_H, x, y, carteL, carteH
-                );
+                const sx = VALEURS.indexOf(carte.value) * SPRITE_L;
+                const sy = SORTES.indexOf(carte.suit) * SPRITE_H;
+                ctx.drawImage(this.imgCartes, sx, sy, SPRITE_L, SPRITE_H, x, y, carteL, carteH);
+                if (enMain) {
+                    // Dans la main, les cartes se chevauchent et cachent la petite sorte du coin droit :
+                    // on la recopie sous le chiffre, dans la partie qui reste visible.
+                    ctx.drawImage(this.sortes || this.imgCartes, this.sortes ? 0 : sx + 55, this.sortes ? (sy / SPRITE_H) * 36 : sy + 4, 34, 36,
+                        x + carteL * 0.07, y + carteH * 0.28, carteL * 0.28, carteH * 0.2);
+                }
             } else {
                 ctx.fillStyle = "white";
                 ctx.fillRect(x, y, carteL, carteH);
@@ -346,7 +407,7 @@
             const monTour = this.vue.tour === this.vue.moi;
             this.posMain().forEach(({ carte, jouable, x, y, l, h }) => {
                 if (cacher && memeCarte(carte, cacher)) return;
-                this.dessinerCarte(carte, x, y, monTour && !jouable, l, h, jouable);
+                this.dessinerCarte(carte, x, y, monTour && !jouable, l, h, jouable, true);
                 this.zones.push({ carte, jouable, x, y, l, h });
             });
         }
@@ -362,6 +423,20 @@
             fond.addColorStop(1, "#0a4a3b");
             ctx.fillStyle = fond;
             ctx.fillRect(0, 0, L, H);
+            // En haut et en bas, le dégradé se fond dans la couleur de bord (la même que celle que
+            // l'iPhone met sous la barre d'état et la barre d'accueil) : pas de coupure nette.
+            const solideHaut = Math.min(H * 0.4, this.y0 + 24);
+            const haut = ctx.createLinearGradient(0, 0, 0, solideHaut + H * 0.22);
+            haut.addColorStop(0, COULEUR_BORD);
+            haut.addColorStop(solideHaut / (solideHaut + H * 0.22), COULEUR_BORD);
+            haut.addColorStop(1, COULEUR_BORD + "00");
+            ctx.fillStyle = haut;
+            ctx.fillRect(0, 0, L, solideHaut + H * 0.22);
+            const bas = ctx.createLinearGradient(0, H * 0.8, 0, H);
+            bas.addColorStop(0, COULEUR_BORD + "00");
+            bas.addColorStop(1, COULEUR_BORD);
+            ctx.fillStyle = bas;
+            ctx.fillRect(0, H * 0.8, L, H * 0.2);
             const a = this.anim;
             this.dessinerTable(a && a.carte);
             this.dessinerJoueurs();
