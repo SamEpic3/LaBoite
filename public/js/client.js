@@ -90,8 +90,8 @@
             this.traiterFile();
         }
 
-        son(nom) {
-            if (this.sons) this.sons.jouer(nom);
+        son(nom, volume = 1) {
+            if (this.sons) this.sons.jouer(nom, volume);
         }
 
         basculerSon() {
@@ -152,7 +152,7 @@
 
             if (!rapide && ancienne) {
                 if (ev.type === "jouer") {
-                    this.son("carte");
+                    this.son("carte", ev.joueur === etat.moi ? 1 : 0.5);
                     await this.rendu.animerCarte(ancienne, etat, ev.joueur, ev.carte);
                 } else if (ev.type === "boite") {
                     if (ev.de !== ev.a) this.son("boite");

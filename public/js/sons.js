@@ -54,8 +54,8 @@
             o.stop(t + duree + 0.02);
         }
 
-        // Bruit bref (carte qui claque sur la table)
-        bruit(t0, duree, volume, frequence) {
+        // Bruit bref filtré (frottement de carte, choc de la boîte)
+        bruit(t0, duree, volume, frequence, type = "bandpass") {
             const ctx = this.ctx;
             const n = Math.floor(ctx.sampleRate * duree);
             const tampon = ctx.createBuffer(1, n, ctx.sampleRate);
@@ -64,7 +64,7 @@
             const src = ctx.createBufferSource();
             src.buffer = tampon;
             const filtre = ctx.createBiquadFilter();
-            filtre.type = "bandpass";
+            filtre.type = type;
             filtre.frequency.value = frequence;
             const g = ctx.createGain();
             g.gain.value = volume;
@@ -72,12 +72,15 @@
             src.start(ctx.currentTime + t0);
         }
 
-        jouer(nom) {
+        // volume : multiplicateur (les cartes des autres joueurs sont plus discrètes)
+        jouer(nom, volume = 1) {
             if (!this.actif || !this.contexte() || this.ctx.state !== "running") return;
             try {
                 switch (nom) {
                     case "carte":
-                        this.bruit(0, 0.07, 0.5, 2200);
+                        // Carte posée doucement : souffle assourdi + petit « toc » grave
+                        this.bruit(0, 0.05, 0.22 * volume, 900, "lowpass");
+                        this.note(220, 0, 0.06, 0.05 * volume, "sine", 140);
                         break;
                     case "boite":
                         this.note(160, 0, 0.25, 0.25, "triangle", 70);
