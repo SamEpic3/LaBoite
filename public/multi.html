@@ -60,6 +60,13 @@
                         <option value="500">500 points</option>
                     </select>
                 </label>
+            <label style="margin-top: 10px;">Niveau des joueurs ordinateur
+                <select id="difficulte">
+                    <option value="facile">Facile</option>
+                    <option value="normal" selected>Normal</option>
+                    <option value="difficile">Difficile</option>
+                </select>
+            </label>
                 <label style="margin-top: 10px;">Temps pour jouer chaque tour
                     <select id="delai">
                         <option value="0">Illimité</option>
@@ -68,6 +75,32 @@
                         <option value="60">1 minute</option>
                     </select>
                 </label>
+            <details class="carte-menu" style="margin-top: 12px; padding: 12px 14px; background: rgba(0,0,0,0.15);">
+                <summary>Variantes de règles</summary>
+                <div class="options" style="margin-top: 10px;">
+                    <label>La boîte vaut
+                        <select id="r-boite">
+                            <option value="20">20 points</option>
+                            <option value="10">10 points</option>
+                            <option value="30">30 points</option>
+                            <option value="50">50 points</option>
+                        </select>
+                    </label>
+                    <label>L'as vaut
+                        <select id="r-as">
+                            <option value="15">15 points</option>
+                            <option value="1">1 point</option>
+                        </select>
+                    </label>
+                    <label style="grid-column: 1 / -1;">Celui qui finit la manche
+                        <select id="r-bonus">
+                            <option value="0">marque 0 point</option>
+                            <option value="10">retire 10 points</option>
+                            <option value="20">retire 20 points</option>
+                        </select>
+                    </label>
+                </div>
+            </details>
             </div>
             <p class="petit" id="resume-config"></p>
             <button id="btn-demarrer">Démarrer la partie</button>
@@ -80,6 +113,7 @@
 
     <script src="js/regles.js"></script>
     <script src="js/rendu.js"></script>
+    <script src="js/sons.js"></script>
     <script src="js/client.js"></script>
     <script src="multi.js"></script>
     <script src="js/pwa.js"></script>

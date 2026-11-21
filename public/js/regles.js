@@ -11,13 +11,16 @@
     const SORTES = ["Clubs", "Diamonds", "Hearts", "Spades"];
     const VALEURS = ["a", "2", "3", "4", "5", "6", "7", "8", "9", "10", "j", "q", "k"];
     const POINTS = [15, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10];
-    const POINTS_BOITE = 20;
     const NOMS_SORTES = { Clubs: "trèfle", Diamonds: "carreau", Hearts: "cœur", Spades: "pique" };
     const NOMS_VALEURS = { a: "As", j: "Valet", q: "Dame", k: "Roi" };
+    // Réactions toutes faites (multijoueur, et parfois les ordinateurs)
+    const REACTIONS = ["👍 Bien joué !", "😅 Oups", "😱 Ah non…", "📦 La boîte !", "😂", "🔥", "⏳ Vite !", "😎"];
 
     const memeCarte = (a, b) => a.suit === b.suit && a.value === b.value;
     const rang = (carte) => VALEURS.indexOf(carte.value);
-    const pointsCarte = (carte) => POINTS[rang(carte)];
+    // Règles par défaut; l'hôte peut choisir des variantes.
+    const REGLES_DEFAUT = { boite: 20, as: 15, bonusFin: 0 };
+    const pointsCarte = (carte, regles = REGLES_DEFAUT) => (carte.value === "a" ? regles.as : POINTS[rang(carte)]);
     const nomCarte = (carte) =>
         `${NOMS_VALEURS[carte.value] || carte.value} de ${NOMS_SORTES[carte.suit]}`;
     // « l'As de cœur », « la Dame de pique », « le 8 de trèfle »
@@ -58,10 +61,13 @@
 
     class Partie {
         // noms : liste des noms des joueurs, dans l'ordre où ils sont assis.
-        constructor(noms, ptsMax = 200, alea = Math.random) {
+        // regles : { boite: points de la boîte, as: points de l'as, bonusFin: points retirés à celui qui finit }
+        constructor(noms, ptsMax = 200, alea = Math.random, regles = {}) {
             if (noms.length < 2 || noms.length > 8) throw new Error("Il faut de 2 à 8 joueurs");
             this.alea = alea;
             this.ptsMax = ptsMax;
+            this.regles = { ...REGLES_DEFAUT, ...regles };
+            this.historique = []; // total de chaque joueur après chaque manche
             this.joueurs = noms.map((nom) => ({ nom, cartes: [], points: 0 }));
             this.table = [];
             this.tour = -1;
@@ -140,10 +146,15 @@
         }
 
         terminerManche(gagnant) {
+            const R = this.regles;
             const points = this.joueurs.map(
-                (j, i) => j.cartes.reduce((t, c) => t + pointsCarte(c), 0) + (i === this.boite ? POINTS_BOITE : 0)
+                (j, i) =>
+                    j.cartes.reduce((t, c) => t + pointsCarte(c, R), 0) +
+                    (i === this.boite ? R.boite : 0) -
+                    (i === gagnant ? R.bonusFin : 0)
             );
             this.joueurs.forEach((j, i) => (j.points += points[i]));
+            this.historique.push(this.joueurs.map((j) => j.points));
             this.derniereManche = { gagnant, points };
             this.tour = -1;
             if (this.joueurs.some((j) => j.points >= this.ptsMax)) {
@@ -164,19 +175,48 @@
             this.arretee = true;
         }
 
-        // Choix de l'ordinateur : on se débarrasse de la carte qui vaut le plus de points.
-        choixIA(i) {
+        // Choix de l'ordinateur selon son niveau :
+        // - facile : une carte permise au hasard
+        // - normal : la carte qui vaut le plus de points
+        // - difficile : joue comme un vrai joueur (voir noteCarte)
+        choixIA(i, niveau = "normal") {
             const jouables = this.jouables(i);
             if (jouables.length === 0) return null;
-            const max = Math.max(...jouables.map(pointsCarte));
-            const meilleures = jouables.filter((c) => pointsCarte(c) === max);
-            return meilleures[Math.floor(this.alea() * meilleures.length)];
+            const auHasard = (liste) => liste[Math.floor(this.alea() * liste.length)];
+            if (niveau === "facile") return auHasard(jouables);
+            const note = niveau === "difficile"
+                ? (c) => this.noteCarte(i, c)
+                : (c) => pointsCarte(c, this.regles);
+            const notes = jouables.map(note);
+            const max = Math.max(...notes);
+            return auHasard(jouables.filter((c, k) => notes[k] === max));
+        }
+
+        // Valeur d'un coup pour l'ordinateur difficile. Poser une carte rend la suivante jouable :
+        // tant mieux si c'est la mienne (je pourrai continuer), tant pis si c'est celle d'un autre
+        // (je lui fais un cadeau). Il faut aussi ouvrir le chemin vers mes cartes plus loin dans
+        // la sorte, et se débarrasser des cartes qui valent cher.
+        noteCarte(i, carte) {
+            const main = this.joueurs[i].cartes;
+            const r = rang(carte);
+            const sorte = this.table.filter((c) => c.suit === carte.suit).map(rang);
+            const directions = sorte.length === 0 ? [-1, 1] : [r < Math.min(...sorte) ? -1 : 1];
+            const aMoi = (rg) => main.some((c) => c.suit === carte.suit && rang(c) === rg);
+            // Poids trouvés par simulation (des milliers de manches contre le niveau normal)
+            let note = pointsCarte(carte, this.regles) / 4;
+            directions.forEach((d) => {
+                const suivante = r + d;
+                if (suivante < 0 || suivante > 12) return;
+                note += aMoi(suivante) ? 4 : -4;
+                for (let k = suivante + d; k >= 0 && k <= 12; k += d) if (aMoi(k)) note += 2;
+            });
+            return note;
         }
     }
 
     return {
-        SORTES, VALEURS, POINTS, POINTS_BOITE,
-        Partie, cartesJouables, trierMain, nouveauPaquet, melanger,
+        SORTES, VALEURS, POINTS,
+        REGLES_DEFAUT, REACTIONS, Partie, cartesJouables, trierMain, nouveauPaquet, melanger,
         memeCarte, pointsCarte, nomCarte, nomCarteArticle,
     };
 });

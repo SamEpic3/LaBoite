@@ -105,10 +105,18 @@
             }
             return;
         }
-        if (m.t === "etat" && client) client.recevoir(m);
+        if ((m.t === "etat" || m.t === "reaction") && client) client.recevoir(m);
     }
 
     const messagesParties = {};
+    // Les variantes choisies, seulement si elles diffèrent des règles habituelles
+    const texteRegles = (r) => {
+        const v = [];
+        if (r.boite !== 20) v.push(`boîte à ${r.boite}`);
+        if (r.as !== 15) v.push("as à 1");
+        if (r.bonusFin) v.push(`-${r.bonusFin} pour qui finit`);
+        return v.length ? ` · ${v.join(", ")}` : "";
+    };
     const texteDelai = (d) => (d ? `${d === 60 ? "1 min" : d + " s"} par tour` : "temps illimité");
 
     function afficherListe() {
@@ -120,10 +128,13 @@
         const triees = [...derniereListe].sort((a, b) => (b.code === codeLien) - (a.code === codeLien));
         triees.forEach((p) => {
             const li = creerElement("li", { class: p.code === codeLien ? "invitee" : "" });
+            const etat = p.enCours
+                ? `En cours · ${p.placesIA} place${p.placesIA > 1 ? "s" : ""} tenue${p.placesIA > 1 ? "s" : ""} par l'ordinateur · ${p.joueurs.join(", ")}`
+                : `${p.joueurs.length} / ${p.places} joueurs · ${p.joueurs.join(", ")} · fin à ${p.ptsMax} · ${texteDelai(p.delai)}`;
             const details = creerElement("div", { class: "details" },
                 creerElement("strong", {}, (p.protegee ? "🔒 " : "") + p.nom),
-                creerElement("span", {}, `${p.joueurs.length} / ${p.places} joueurs · ${p.joueurs.join(", ")} · fin à ${p.ptsMax} · ${texteDelai(p.delai)}`));
-            const bouton = creerElement("button", {}, "Rejoindre");
+                creerElement("span", {}, etat));
+            const bouton = creerElement("button", {}, p.enCours ? "Prendre une place" : "Rejoindre");
             li.append(details, bouton);
             if (p.protegee && mdpOuverts.has(p.code)) {
                 const champ = creerElement("input", {
@@ -185,9 +196,14 @@
         nb.value = String(s.config.nb);
         $("#pts").value = String(s.config.ptsMax);
         $("#delai").value = String(s.config.delai);
+        $("#difficulte").value = s.config.difficulte;
+        $("#r-boite").value = String(s.config.regles.boite);
+        $("#r-as").value = String(s.config.regles.as);
+        $("#r-bonus").value = String(s.config.regles.bonusFin);
         const ia = s.config.nb - s.joueurs.length;
         $("#resume-config").textContent =
-            `${s.config.nb} joueurs` + (ia > 0 ? ` (${ia} à l'ordinateur)` : "") + ` · fin à ${s.config.ptsMax} points · ${texteDelai(s.config.delai)}`;
+            `${s.config.nb} joueurs` + (ia > 0 ? ` (${ia} à l'ordinateur)` : "") + ` · fin à ${s.config.ptsMax} points · ${texteDelai(s.config.delai)}`
+            + ` · ordinateurs : ${s.config.difficulte}` + texteRegles(s.config.regles);
         $("#options-hote").classList.toggle("cache", !s.estHote);
         $("#btn-demarrer").classList.toggle("cache", !s.estHote);
         $("#attente-hote").classList.toggle("cache", s.estHote);
@@ -199,6 +215,7 @@
         client = new ClientJeu({
             conteneur: ecrans.jeu,
             envoyer: (carte) => envoyer({ t: "jouer", carte }),
+            reagir: (id) => envoyer({ t: "reaction", id }),
             rejouer: null,
             menu: () => {
                 envoyer({ t: "quitter" });
@@ -228,10 +245,10 @@
 
     const envoyerConfig = () => envoyer({
         t: "config", nb: Number($("#nb").value), ptsMax: Number($("#pts").value), delai: Number($("#delai").value),
+        difficulte: $("#difficulte").value,
+        boite: Number($("#r-boite").value), as: Number($("#r-as").value), bonusFin: Number($("#r-bonus").value),
     });
-    $("#nb").onchange = envoyerConfig;
-    $("#pts").onchange = envoyerConfig;
-    $("#delai").onchange = envoyerConfig;
+    ["#nb", "#pts", "#delai", "#difficulte", "#r-boite", "#r-as", "#r-bonus"].forEach((id) => ($(id).onchange = envoyerConfig));
     $("#btn-demarrer").onclick = () => envoyer({ t: "demarrer" });
 
     $("#btn-quitter").onclick = () => {

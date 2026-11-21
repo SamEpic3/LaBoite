@@ -87,19 +87,32 @@ function verifierMotDePasse(salle, essai) {
 const observateurs = new Set();
 let listeEnAttente = false;
 
+// Parties qu'on peut rejoindre : en attente, ou en cours avec une place tenue par l'ordinateur.
 function listeSalles() {
     return [...salles.values()]
-        .filter((s) => !s.partie && s.joueurs.length < MAX_HUMAINS && s.joueurs.some((j) => j.conn))
+        .filter((s) => s.joueurs.length < MAX_HUMAINS && s.joueurs.some((j) => j.conn))
+        .filter((s) => !s.partie || s.partie.placesIA().length > 0)
         .map((s) => ({
             code: s.code,
             nom: s.nom,
             joueurs: s.joueurs.map((j) => j.nom),
-            places: s.config.nb,
+            places: s.partie ? s.partie.joueurs.length : s.config.nb,
+            enCours: !!s.partie,
+            placesIA: s.partie ? s.partie.placesIA().length : 0,
             ptsMax: s.config.ptsMax,
             delai: s.config.delai,
             protegee: !!s.motDePasse,
         }));
 }
+
+// Options choisies par l'hôte, vérifiées
+const OPTIONS = {
+    boite: [20, 10, 30, 50], // la première valeur est celle par défaut
+    as: [15, 1],
+    bonusFin: [0, 10, 20],
+    difficulte: ["normal", "facile", "difficile"],
+};
+const choisir = (valeur, permis) => (permis.includes(valeur) ? valeur : permis[0]);
 
 function diffuserListe() {
     if (listeEnAttente) return;
@@ -152,7 +165,7 @@ function diffuserSalle(salle) {
 }
 
 function demarrerPartie(salle) {
-    const { nb, ptsMax, delai } = salle.config;
+    const { nb, ptsMax, delai, regles, difficulte } = salle.config;
     // Après ce délai, l'ordinateur joue à la place du joueur (null = pas de limite)
     const delaiTour = delai ? (TEST ? 300 : delai * 1000) : null;
     const total = Math.max(nb, salle.joueurs.length);
@@ -160,13 +173,17 @@ function demarrerPartie(salle) {
         joueurs: Hote.completerAvecIA(salle.joueurs.map((j) => ({ nom: j.nom, avatar: "lettre" })), total),
         ptsMax,
         delaiTour,
+        regles,
+        difficulte,
         ...(TEST ? { delaiIA: 5, delaiBoite: 5, delaiManche: 20 } : {}),
+        // i : la place (le siège) dans la partie; on retrouve le joueur humain assis là
         envoyer: (i, msg) => {
-            const j = salle.joueurs[i];
+            const j = salle.joueurs.find((k) => k.siege === i);
             if (j && j.conn) j.conn.envoyer(msg);
         },
     });
     salle.joueurs.forEach((j, i) => {
+        j.siege = i;
         if (!j.conn) salle.partie.joueurs[i].connecte = false;
     });
     diffuserSalle(salle);
@@ -179,9 +196,13 @@ function quitter(salle, joueur, volontaire = false) {
     const i = salle.joueurs.indexOf(joueur);
     if (i === -1) return;
     joueur.conn = null;
-    if (salle.partie) {
-        // En pleine partie, on garde la place : l'ordinateur joue pour lui jusqu'à son retour.
-        salle.partie.setConnecte(i, false);
+    if (salle.partie && volontaire) {
+        // Départ pour de bon : l'ordinateur reprend la place, qu'un autre joueur pourra prendre.
+        salle.joueurs.splice(i, 1);
+        salle.partie.rendreIA(joueur.siege);
+    } else if (salle.partie) {
+        // Connexion coupée : on garde la place, l'ordinateur joue pour lui jusqu'à son retour.
+        salle.partie.setConnecte(joueur.siege, false);
     } else if (volontaire) {
         salle.joueurs.splice(i, 1);
     } else {
@@ -242,7 +263,7 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                 code: nouveauCode(),
                 nom: `Partie de ${nom}`,
                 joueurs: [],
-                config: { nb: 4, ptsMax: 200, delai: 30 },
+                config: { nb: 4, ptsMax: 200, delai: 30, regles: { boite: 20, as: 15, bonusFin: 0 }, difficulte: "normal" },
                 partie: null,
                 videDepuis: Date.now(),
                 motDePasse: null,
@@ -274,10 +295,11 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                 salle = s;
                 joueur = ancien;
                 diffuserSalle(s);
-                if (s.partie) s.partie.setConnecte(s.joueurs.indexOf(ancien), true);
+                if (s.partie) s.partie.setConnecte(ancien.siege, true);
                 return;
             }
-            if (s.partie) return erreur("Cette partie est déjà commencée.", { introuvable: true });
+            if (s.partie && s.partie.placesIA().length === 0)
+                return erreur("Cette partie est commencée et toutes les places sont prises.", { introuvable: true });
             if (s.joueurs.length >= MAX_HUMAINS) return erreur("Cette partie est pleine.");
             if (s.motDePasse) {
                 // Quelques essais seulement, pour décourager qui voudrait deviner le mot de passe
@@ -294,6 +316,19 @@ brancherWebSocket(serveur, "/ws", (conn) => {
             observateurs.delete(conn);
             if (joueur) quitter(salle, joueur, true);
             salle = s;
+            if (s.partie) {
+                // Partie en cours : le nouveau prend la place d'un ordinateur, avec ses cartes et ses points.
+                const siege = s.partie.placesIA()[0];
+                const noms = new Set(s.partie.joueurs.map((j) => j.nom.toLowerCase()));
+                let nom = nettoyerNom(m.nom);
+                for (let k = 2; noms.has(nom.toLowerCase()); k++) nom = `${nettoyerNom(m.nom)} ${k}`;
+                joueur = { jeton: nouveauJeton(), nom, conn, siege };
+                s.joueurs.push(joueur);
+                diffuserSalle(s); // d'abord : le client doit savoir que la partie est en cours
+                s.partie.remplacerIA(siege, nom);
+                console.log(`[${s.code}] ${nom} remplace un ordinateur`);
+                return;
+            }
             joueur = { jeton: nouveauJeton(), nom: nomUnique(s, nettoyerNom(m.nom)), conn };
             s.joueurs.push(joueur);
             if (s.config.nb < s.joueurs.length) s.config.nb = s.joueurs.length;
@@ -310,15 +345,28 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                     nb: Math.max(2, salle.joueurs.length, Math.min(8, Number(m.nb) || 4)),
                     ptsMax: [100, 200, 300, 500].includes(Number(m.ptsMax)) ? Number(m.ptsMax) : 200,
                     delai: DELAIS_PERMIS.includes(Number(m.delai)) ? Number(m.delai) : 30,
+                    regles: {
+                        boite: choisir(Number(m.boite), OPTIONS.boite),
+                        as: choisir(Number(m.as), OPTIONS.as),
+                        bonusFin: choisir(Number(m.bonusFin), OPTIONS.bonusFin),
+                    },
+                    difficulte: choisir(m.difficulte, OPTIONS.difficulte),
                 };
                 return diffuserSalle(salle);
             case "demarrer":
                 if (!estHote) return erreur("Seul l'hôte peut démarrer la partie.");
                 if (salle.partie) return;
                 return demarrerPartie(salle);
+            case "reaction": {
+                // Une réaction par seconde au plus
+                if (!salle.partie || Date.now() - (joueur.derniereReaction || 0) < 1000) return;
+                joueur.derniereReaction = Date.now();
+                salle.partie.reagir(joueur.siege, Number(m.id));
+                return;
+            }
             case "jouer": {
                 if (!salle.partie) return;
-                const e = salle.partie.action(salle.joueurs.indexOf(joueur), m.carte || {});
+                const e = salle.partie.action(joueur.siege, m.carte || {});
                 if (e) erreur(e);
                 return;
             }

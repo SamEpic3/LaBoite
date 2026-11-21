@@ -6,6 +6,9 @@ const path = require("path");
 const PORT = 3999;
 const srv = spawn("node", [path.join(__dirname, "..", "server.js")], { env: { ...process.env, PORT, LABOITE_TEST: "1" }, stdio: ["ignore", "pipe", "inherit"] });
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+// Toujours arrêter le serveur de test, même si une vérification échoue
+process.on("uncaughtException", (e) => { console.error(e); srv.kill(); process.exit(1); });
+process.on("exit", () => srv.kill());
 
 function bot(nom, { paresseux = false } = {}) {
   const b = { nom, msgs: [], salle: null, etat: null };
@@ -71,12 +74,31 @@ function bot(nom, { paresseux = false } = {}) {
   assert.strictEqual(c.salle.config.nb, 4);
   a.envoyer({ t: "demarrer" }); await attendre(200);
   assert(c.salle.enJeu);
-  assert.deepStrictEqual(obs.liste, [], "une partie commencée n'est plus dans la liste");
+  assert.strictEqual(obs.liste.length, 1, "partie en cours avec une place d'ordinateur : dans la liste");
+  assert(obs.liste[0].enCours && obs.liste[0].placesIA === 1);
   assert.strictEqual(a.etat.joueurs.length, 4);
   assert(a.etat.joueurs[3].ia);
-  // un intrus ne peut pas entrer pendant la partie
-  const d = bot("Intrus"); await d.connecter(); d.envoyer({ t: "rejoindre", code, nom: "X" }); await attendre(50);
-  assert(d.msgs.some((m) => m.t === "erreur" && /commencée/.test(m.msg)));
+  // un 4e joueur prend la place de l'ordinateur en pleine partie, avec ses cartes et ses points
+  const avant = a.etat.joueurs[3];
+  assert(avant.ia);
+  const d = bot("Nouveau", { paresseux: true }); await d.connecter();
+  d.envoyer({ t: "rejoindre", code, nom: "Paul", motDePasse: "secret" }); await attendre(150);
+  assert(d.salle && d.salle.enJeu, "a rejoint la partie en cours");
+  assert.strictEqual(d.etat.moi, 3);
+  assert(!a.etat.joueurs[3].ia && a.etat.joueurs[3].nom.startsWith("Paul"));
+  assert(a.msgs.some((m) => m.t === "etat" && m.ev.type === "arrivee"));
+  assert.deepStrictEqual(obs.liste, [], "plus de place libre : plus dans la liste");
+  // un 5e ne peut plus entrer
+  const e5 = bot("X"); await e5.connecter(); e5.envoyer({ t: "rejoindre", code, nom: "X", motDePasse: "secret" }); await attendre(50);
+  assert(e5.msgs.some((m) => m.t === "erreur" && /places sont prises/.test(m.msg)));
+  // réactions : tout le monde les reçoit, une par seconde au plus
+  a.envoyer({ t: "reaction", id: 0 }); a.envoyer({ t: "reaction", id: 1 }); await attendre(80);
+  const reactions = c.msgs.filter((m) => m.t === "reaction" && m.joueur === 0);
+  assert.strictEqual(reactions.length, 1); assert.strictEqual(reactions[0].id, 0);
+  // il quitte pour de bon : l'ordinateur reprend la place
+  d.envoyer({ t: "quitter" }); await attendre(100);
+  assert(a.etat.joueurs[3].ia, "l'ordinateur reprend la place");
+  assert.strictEqual(obs.liste.length, 1);
   // jouer hors tour est refusé
   const hors = [a, b].find((x) => x.etat.phase === "jeu" && x.etat.tour !== x.etat.moi && x.etat.main.length);
   if (hors) { const n = hors.msgs.length; hors.envoyer({ t: "jouer", carte: hors.etat.main[0] }); await attendre(50);

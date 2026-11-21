@@ -28,10 +28,18 @@ for (let n=2;n<=8;n++) for (let essai=0;essai<200;essai++){
 // erreurs
 const p=new R.Partie(['a','b','c'],200); p.nouvelleManche();
 assert.throws(()=>p.jouer((p.tour+1)%3,p.joueurs[(p.tour+1)%3].cartes[0]),/pas ton tour/);
+// variantes de règles : as à 1 point, boîte à 50, bonus de 10 pour qui finit
+{ const p=new R.Partie(['a','b'],1e9,Math.random,{as:1,boite:50,bonusFin:10}); p.nouvelleManche();
+  while(p.phase==='jeu'){const i=p.tour; if(p.peutJouer(i)) p.jouer(i,p.choixIA(i,'difficile')); else p.prendreBoite(i);}
+  const g=p.derniereManche.gagnant, autre=1-g;
+  const attendu=p.joueurs[autre].cartes.reduce((t,c)=>t+(c.value==='a'?1:R.pointsCarte(c)),0)+(p.boite===autre?50:0);
+  assert.strictEqual(p.derniereManche.points[autre], attendu);
+  assert.strictEqual(p.derniereManche.points[g], (p.boite===g?50:0)-10);
+  assert.deepStrictEqual(p.historique, [p.joueurs.map(j=>j.points)]); }
 console.log('regles OK');
 // hôte : partie entière tout-IA sauf joueur 0 absent, délais 0
 const msgs=[];
-const h=new Hote({joueurs:Hote.completerAvecIA([{nom:'Sam'}],4),envoyer:(i,m)=>msgs.push(m),delaiIA:0,delaiBoite:0,delaiManche:0,delaiTour:5});
+const h=new Hote({joueurs:Hote.completerAvecIA([{nom:'Sam'}],4),envoyer:(i,m)=>m.t==='etat'&&msgs.push(m),difficulte:'difficile',delaiIA:0,delaiBoite:0,delaiManche:0,delaiTour:5});
 h.demarrer();
 const t0=Date.now();
 const iv=setInterval(()=>{ if(h.partie.phase==='finPartie'){clearInterval(iv);

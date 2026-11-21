@@ -252,3 +252,85 @@ button.secondaire:active { transform: translateY(1px); }
     box-shadow: none;
 }
 .bouton-coin:active { transform: translateY(1px); box-shadow: none; }
+
+/* ----- Son et réactions (en bas à droite) ----- */
+.coin-droit {
+    position: fixed;
+    right: calc(env(safe-area-inset-right) + 10px);
+    bottom: calc(env(safe-area-inset-bottom) + 10px);
+    display: flex;
+    gap: 8px;
+    z-index: 3;
+}
+.bouton-rond {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 1.3rem;
+    line-height: 1;
+    border-radius: 50%;
+    background: rgba(0,0,0,0.3);
+    border: 1px solid rgba(255,255,255,0.35);
+    box-shadow: none;
+    color: white;
+}
+.bouton-rond:active { transform: scale(0.94); box-shadow: none; }
+.palette {
+    position: fixed;
+    right: calc(env(safe-area-inset-right) + 10px);
+    bottom: calc(env(safe-area-inset-bottom) + 62px);
+    width: min(280px, calc(100vw - 20px));
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+    background: rgba(8, 40, 32, 0.94);
+    border: 1px solid rgba(255,255,255,0.15);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    border-radius: 14px;
+    z-index: 6;
+}
+.palette button {
+    padding: 8px 6px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: white;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: none;
+    border-radius: 10px;
+}
+.bulle {
+    position: fixed;
+    transform: translate(-50%, 0);
+    max-width: 60vw;
+    padding: 6px 12px;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #183c33;
+    background: #fffaf0;
+    border-radius: 14px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    white-space: nowrap;
+    z-index: 8;
+    pointer-events: none;
+    animation: bulle-arrive 0.25s ease-out;
+    transition: opacity 0.4s, transform 0.4s;
+}
+.bulle.vers-haut { transform: translate(-50%, -100%); }
+.bulle.disparait { opacity: 0; }
+@keyframes bulle-arrive { from { opacity: 0; scale: 0.7; } to { opacity: 1; scale: 1; } }
+
+.confettis { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
+
+/* ----- Graphique et pastilles de couleur ----- */
+.graphique { width: 100%; height: auto; }
+.graphique .axe { fill: rgba(255,255,255,0.7); font-size: 9px; font-family: system-ui, sans-serif; }
+.graphique .ligne-fin { stroke: rgba(255,255,255,0.4); stroke-dasharray: 4 4; }
+.pastille { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+
+/* Options de partie, en grille compacte */
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.options label { font-size: 0.92rem; }
+.options select { font-size: 1rem; padding: 9px 10px; }
+details.carte-menu > summary { font-weight: 700; }

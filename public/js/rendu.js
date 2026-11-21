@@ -19,12 +19,7 @@
         });
     }
 
-    const COULEURS = ["#e85d75", "#f29e4c", "#7b6cf6", "#2f9bd8", "#d65db1", "#4c8f3a", "#c0563a", "#5a6acf"];
-    function couleurNom(nom) {
-        let h = 0;
-        for (const c of nom) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-        return COULEURS[h % COULEURS.length];
-    }
+    const COULEURS = ["#e85d75", "#5a6acf", "#f29e4c", "#2f9bd8", "#4c8f3a", "#d65db1", "#7b6cf6", "#c0563a"];
 
     const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms));
     const doux = (t) => 1 - Math.pow(1 - t, 3);
@@ -345,7 +340,7 @@
                     ctx.drawImage(img, x, y, avatar, avatar);
                 } else {
                     // Joueur humain en multijoueur : pastille de couleur avec son initiale
-                    ctx.fillStyle = couleurNom(j.nom);
+                    ctx.fillStyle = COULEURS[i % COULEURS.length]; // une couleur par place à la table
                     ctx.fillRect(x, y, avatar, avatar);
                     ctx.fillStyle = "white";
                     ctx.font = `bold ${avatar * 0.5}px system-ui, Arial`;

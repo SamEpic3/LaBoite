@@ -9,6 +9,8 @@
 
     const NOMS_IA = ["Georges", "Francis", "Mike", "Paul", "Aline", "Jocelyne", "Claudette", "Richard"];
 
+    const REACTIONS = Regles.REACTIONS;
+
     // Complète la liste de joueurs humains avec des joueurs ordinateur jusqu'à nb.
     function completerAvecIA(humains, nb, alea = Math.random) {
         const pris = new Set(humains.map((h) => h.nom));
@@ -29,9 +31,12 @@
             delaiIA = 1000, delaiBoite = 1500,
             delaiManche = 5000, // null = on attend mancheSuivante() (bouton en solo)
             delaiTour = null, // ms pour jouer avant que l'ordinateur joue à sa place (null = illimité)
+            regles = {}, // variantes : { boite, as, bonusFin }
+            difficulte = "normal", // niveau des joueurs ordinateur : facile, normal ou difficile
+            reactionsIA = true, // les ordinateurs réagissent de temps en temps
             alea = Math.random,
         }) {
-            this.config = { ptsMax, delaiIA, delaiBoite, delaiManche, delaiTour, alea };
+            this.config = { ptsMax, delaiIA, delaiBoite, delaiManche, delaiTour, regles, difficulte, reactionsIA, alea };
             this.joueurs = joueurs.map((j) => ({ ...j, connecte: !j.ia }));
             this.envoyer = envoyer;
             this.minuterie = null;
@@ -40,7 +45,9 @@
         }
 
         demarrer() {
-            this.partie = new Regles.Partie(this.joueurs.map((j) => j.nom), this.config.ptsMax, this.config.alea);
+            this.partie = new Regles.Partie(
+                this.joueurs.map((j) => j.nom), this.config.ptsMax, this.config.alea, this.config.regles
+            );
             this.nouvelleManche();
         }
 
@@ -84,15 +91,67 @@
         setConnecte(i, connecte) {
             this.joueurs[i].connecte = connecte;
             if (this.partie) {
+                if (this.partie.tour === i) this.annulerMinuterie();
                 if (connecte) this.envoyer(i, this.message(i, { type: "sync" }));
                 if (this.partie.tour === i) this.planifier();
                 this.diffuser({ type: "presence", joueur: i });
             }
         }
 
+        // Un nouveau joueur prend la place d'un ordinateur en pleine partie (avec ses cartes et ses points).
+        remplacerIA(k, nom) {
+            const ancien = this.joueurs[k].nom;
+            this.joueurs[k] = { nom, ia: false, avatar: "lettre", connecte: true };
+            if (this.partie) {
+                this.partie.joueurs[k].nom = nom;
+                if (this.partie.tour === k) this.annulerMinuterie();
+                this.diffuser({ type: "arrivee", joueur: k, ancien });
+                if (this.partie.tour === k) this.planifier();
+            }
+        }
+
+        // Un joueur quitte la partie pour de bon : l'ordinateur reprend sa place.
+        rendreIA(k) {
+            this.joueurs[k] = { ...this.joueurs[k], ia: true, connecte: false };
+            if (this.partie) {
+                if (this.partie.tour === k) this.annulerMinuterie();
+                this.diffuser({ type: "depart", joueur: k });
+                if (this.partie.tour === k) this.planifier();
+            }
+        }
+
+        placesIA() {
+            return this.joueurs.map((j, k) => (j.ia ? k : -1)).filter((k) => k >= 0);
+        }
+
+        // Réaction d'un joueur (index dans REACTIONS), montrée à tout le monde.
+        reagir(i, id) {
+            if (!Number.isInteger(id) || id < 0 || id >= REACTIONS.length) return;
+            this.joueurs.forEach((j, k) => {
+                if (!j.ia) this.envoyer(k, { t: "reaction", joueur: i, id });
+            });
+        }
+
+        // De temps en temps, un ordinateur réagit à ce qui lui arrive.
+        reactionIA(ev) {
+            if (!this.config.reactionsIA || !this.partie) return;
+            const hasard = this.config.alea;
+            let qui = -1;
+            let id = -1;
+            if (ev.type === "boite" && ev.de !== ev.a && this.joueurs[ev.a].ia && hasard() < 0.35) {
+                qui = ev.a;
+                id = hasard() < 0.5 ? 2 : 1;
+            } else if (ev.type === "jouer" && this.partie.phase !== "jeu" && this.joueurs[ev.joueur].ia && hasard() < 0.6) {
+                qui = ev.joueur;
+                id = 7;
+            }
+            if (qui >= 0) setTimeout(() => this.reagir(qui, id), 500);
+        }
+
         apres(ev) {
             this.annulerMinuterie(); // l'ancienne minuterie ne doit pas apparaître dans le nouvel état
             this.diffuser(ev);
+            this.reactionIA(ev);
             this.planifier();
         }
 
@@ -128,7 +187,9 @@
         }
 
         jouerPourLui(i, tempsEcoule = false) {
-            const ev = this.partie.jouer(i, this.partie.choixIA(i));
+            // Les ordinateurs jouent à leur niveau; pour un humain absent ou trop lent, niveau normal.
+            const niveau = this.joueurs[i].ia ? this.config.difficulte : "normal";
+            const ev = this.partie.jouer(i, this.partie.choixIA(i, niveau));
             if (tempsEcoule) ev.tempsEcoule = true;
             this.apres(ev);
         }
@@ -166,6 +227,9 @@
                     derniereManche: p.derniereManche,
                     vainqueurs: p.vainqueurs,
                     arretee: !!p.arretee,
+                    historique: p.historique,
+                    regles: p.regles,
+                    difficulte: this.config.difficulte,
                     resteMs: this.echeance ? Math.max(0, this.echeance - Date.now()) : null,
                     delaiTour: this.config.delaiTour,
                     delaiManche: this.config.delaiManche,
@@ -181,5 +245,6 @@
 
     Hote.completerAvecIA = completerAvecIA;
     Hote.NOMS_IA = NOMS_IA;
+    Hote.REACTIONS = REACTIONS;
     return Hote;
 });

@@ -52,4 +52,7 @@ Le forfait gratuit met le serveur en veille quand personne ne joue. La première
 - La manche finit quand quelqu'un n'a plus de cartes. Les autres comptent leurs cartes : as = 15, figures = 10, les autres leur valeur. La boîte vaut 20 points.
 - La partie finit quand quelqu'un atteint le maximum (200 par défaut). Le plus petit pointage gagne.
 - En multijoueur, on choisit une partie dans la liste des parties ouvertes. Le créateur peut la protéger par un mot de passe.
+- Avant la partie : niveau des joueurs ordinateur (facile, normal, difficile) et variantes (valeur de la boîte et de l'as, points retirés à celui qui finit la manche).
+- En multijoueur, on peut prendre la place d'un ordinateur dans une partie en cours (avec ses cartes et ses points). Celui qui quitte rend sa place à l'ordinateur.
+- Réactions rapides en multijoueur (bouton 😀), sons (bouton 🔊), graphique des points à la fin de la partie.
 - En multijoueur, l'hôte choisit le temps par tour (illimité, 15 s, 30 s ou 1 min). Quand le temps est écoulé, l'ordinateur joue à ta place. Si un joueur se déconnecte, l'ordinateur joue pour lui jusqu'à son retour.
