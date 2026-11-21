@@ -37,10 +37,16 @@
             this.anim = null; // { carte, x, y } ou { boite: true, x, y }
             this.surCarte = () => {};
             this.redimensionner();
-            window.addEventListener("resize", () => {
+            // Sur iPhone, la taille de l'écran n'est pas toujours à jour au moment de l'événement
+            // de rotation : on remesure plusieurs fois, et dès que le canvas change de taille.
+            const remesurer = () => {
                 this.redimensionner();
                 this.dessiner();
-            });
+            };
+            window.addEventListener("resize", remesurer);
+            window.addEventListener("orientationchange", () => [50, 250, 600].forEach((ms) => setTimeout(remesurer, ms)));
+            if (window.visualViewport) visualViewport.addEventListener("resize", remesurer);
+            if (window.ResizeObserver) new ResizeObserver(remesurer).observe(canvas);
             canvas.addEventListener("click", (e) => this.clic(e));
             // Redessine en continu quand une minuterie est affichée.
             setInterval(() => {
@@ -60,22 +66,54 @@
             avatars.forEach((a, i) => (this.avatars[a] = imgs[i]));
         }
 
+        // Marges de sécurité de l'iPhone (encoche, barre d'état, barre d'accueil), en pixels.
+        lireMarges() {
+            if (!this.sonde) {
+                this.sonde = document.createElement("div");
+                this.sonde.style.cssText =
+                    "position:fixed;visibility:hidden;pointer-events:none;top:0;left:0;" +
+                    "padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+                document.body.append(this.sonde);
+            }
+            const cs = getComputedStyle(this.sonde);
+            return {
+                haut: parseFloat(cs.paddingTop) || 0,
+                droite: parseFloat(cs.paddingRight) || 0,
+                bas: parseFloat(cs.paddingBottom) || 0,
+                gauche: parseFloat(cs.paddingLeft) || 0,
+            };
+        }
+
         redimensionner() {
             const dpr = Math.max(window.devicePixelRatio || 1, 2);
-            this.l = window.innerWidth;
-            this.h = window.innerHeight;
-            this.canvas.style.width = this.l + "px";
-            this.canvas.style.height = this.h + "px";
-            this.canvas.width = this.l * dpr;
-            this.canvas.height = this.h * dpr;
+            // Le canvas occupe tout l'écran par le CSS (position fixed, inset 0) : on lit sa vraie taille.
+            const r = this.canvas.getBoundingClientRect();
+            const l = Math.round(r.width) || window.innerWidth;
+            const h = Math.round(r.height) || window.innerHeight;
+            if (l === this.lTotal && h === this.hTotal && this.canvas.width === Math.round(l * dpr)) return;
+            this.lTotal = l;
+            this.hTotal = h;
+            this.canvas.width = Math.round(l * dpr);
+            this.canvas.height = Math.round(h * dpr);
             this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-            const { l, h } = this;
-            this.carteH = Math.min(h * 0.11, (l * 0.12 * SPRITE_H) / SPRITE_L);
+            // Zone utile : l'écran moins les marges de sécurité
+            const m = this.lireMarges();
+            this.x0 = m.gauche;
+            this.y0 = m.haut;
+            this.l = l - m.gauche - m.droite;
+            this.h = h - m.haut - Math.max(0, m.bas - 8);
+
+            const L = this.l;
+            const H = this.h;
+            this.carteH = Math.min(H * 0.11, (L * 0.12 * SPRITE_H) / SPRITE_L);
             this.carteL = (this.carteH * SPRITE_L) / SPRITE_H;
             this.ecartV = this.carteH * 0.2;
-            this.avatar = Math.max(44, Math.min(100, Math.min(l, h) * 0.11));
-            this.marge = Math.max(10, Math.min(l, h) * 0.025);
+            // Cartes de la main : plus grandes que celles de la table, pour bien les voir et les toucher
+            this.mainH = Math.max(this.carteH, Math.min(H * 0.16, ((L / 6.2) * SPRITE_H) / SPRITE_L, 115));
+            this.mainL = (this.mainH * SPRITE_L) / SPRITE_H;
+            this.avatar = Math.max(40, Math.min(100, Math.min(L, H) * 0.11));
+            this.marge = Math.max(8, Math.min(L, H) * 0.022);
             this.texte = Math.max(11, this.avatar * 0.18);
         }
 
@@ -87,19 +125,19 @@
         }
 
         posAvatar(i) {
-            const { l, h, avatar, marge } = this;
+            const { l, h, avatar, marge, x0, y0 } = this;
             const n = this.vue.joueurs.length;
             const s = this.siege(i);
-            if (s === 0) return { x: l / 2 - avatar / 2, y: h - avatar - marge - this.texte * 1.4 };
+            if (s === 0) return { x: x0 + l / 2 - avatar / 2, y: y0 + h - avatar - marge - this.texte * 1.4 };
             // Les autres joueurs se répartissent en arc de la gauche vers la droite, en passant par le haut.
             const autres = n - 1;
             const angle = Math.PI - ((s - 0.5) * Math.PI) / autres;
             const rx = l / 2 - avatar / 2 - marge;
             // Le haut de l'écran est réservé aux panneaux de texte (hautReserve).
-            const centreY = h * 0.48;
-            const haut = Math.max(marge, this.hautReserve || 0) + this.texte * 1.4;
+            const centreY = y0 + h * 0.48;
+            const haut = Math.max(y0 + marge, this.hautReserve || 0) + this.texte * 1.4;
             const ry = Math.max(avatar * 0.5, centreY - haut - avatar / 2);
-            const cx = l / 2 + rx * Math.cos(angle);
+            const cx = x0 + l / 2 + rx * Math.cos(angle);
             const cy = centreY - ry * Math.sin(angle);
             return { x: cx - avatar / 2, y: cy - avatar / 2 };
         }
@@ -109,15 +147,15 @@
         zoneTable() {
             const esp = this.carteL * 0.15;
             const largeur = 4 * this.carteL + 3 * esp;
-            const gauche = this.l / 2 - largeur / 2;
-            let haut = (this.hautReserve || 0) + this.marge;
+            const gauche = this.x0 + this.l / 2 - largeur / 2;
+            let haut = Math.max(this.y0, this.hautReserve || 0) + this.marge;
             this.vue.joueurs.forEach((j, i) => {
                 if (i === this.vue.moi) return;
                 const p = this.posAvatar(i);
                 const chevauche = p.x < gauche + largeur + 20 && p.x + this.avatar > gauche - 20;
                 if (chevauche) haut = Math.max(haut, p.y + this.avatar + this.texte * 1.6);
             });
-            const basMain = this.posAvatar(this.vue.moi).y - this.carteH * 1.18 - this.texte * 2.2;
+            const basMain = this.hautMainReserve() - this.texte * 0.6;
             const dispo = basMain - haut;
             const ecart = Math.max(this.carteH * 0.1, Math.min(this.ecartV, (dispo - this.carteH) / 12));
             const hauteur = this.carteH + 12 * ecart;
@@ -132,26 +170,58 @@
             return { x, y };
         }
 
+        // Comment placer n cartes dans la main : assez d'espace entre les cartes pour les toucher
+        // facilement; s'il en manque, on fait plusieurs rangées qui se chevauchent.
+        disposerMain(n) {
+            const cl = this.mainL;
+            const ch = this.mainH;
+            const dispo = this.l - 2 * this.marge - cl;
+            const pasMin = cl * 0.55; // au moins 55 % de chaque carte est visible
+            const parRangee = n > 1 ? Math.max(1, Math.floor(dispo / pasMin) + 1) : 1;
+            const rangees = Math.max(1, Math.ceil(n / parRangee));
+            const decalV = ch * 0.44; // on voit le haut des cartes des rangées du fond
+            const souleve = rangees === 1 ? ch * 0.16 : 0;
+            return { cl, ch, rangees, parRangee: Math.ceil(n / rangees), decalV, souleve, dispo };
+        }
+
+        basMain() {
+            return this.posAvatar(this.vue.moi).y - this.texte * 1.6;
+        }
+
+        // Haut de la zone de la main, calculé pour le nombre de cartes du début de la manche :
+        // la table ne bouge pas quand la main rapetisse.
+        hautMainReserve() {
+            const nDepart = Math.ceil(52 / this.vue.joueurs.length);
+            const d = this.disposerMain(Math.max(nDepart, this.vue.main.length));
+            return this.basMain() - d.ch - (d.rangees - 1) * d.decalV - d.souleve;
+        }
+
         posMain() {
             const main = this.vue.main;
             const n = main.length;
-            const yAvatar = this.posAvatar(this.vue.moi).y;
-            const y = yAvatar - this.carteH - this.texte * 1.8;
-            const dispo = this.l - 2 * this.marge - this.carteL;
-            const pas = n > 1 ? Math.min(this.carteL * 0.85, dispo / (n - 1)) : 0;
-            const total = this.carteL + pas * (n - 1);
-            const x0 = this.l / 2 - total / 2;
+            const d = this.disposerMain(n);
             const monTour = this.vue.tour === this.vue.moi;
-            return main.map((carte, k) => {
-                const jouable = monTour && this.vue.jouables.some((c) => memeCarte(c, carte));
-                return { carte, jouable, x: x0 + k * pas, y: y - (jouable ? this.carteH * 0.18 : 0) };
-            });
+            const bas = this.basMain();
+            const res = [];
+            for (let r = 0; r < d.rangees; r++) {
+                const cartes = main.slice(r * d.parRangee, (r + 1) * d.parRangee);
+                const k = cartes.length;
+                const pas = k > 1 ? Math.min(d.cl * 0.85, d.dispo / (k - 1)) : 0;
+                const total = d.cl + pas * (k - 1);
+                const xg = this.x0 + this.l / 2 - total / 2;
+                const y = bas - d.ch - (d.rangees - 1 - r) * d.decalV;
+                cartes.forEach((carte, j) => {
+                    const jouable = monTour && this.vue.jouables.some((c) => memeCarte(c, carte));
+                    res.push({ carte, jouable, x: xg + j * pas, y: y - (jouable ? d.souleve : 0), l: d.cl, h: d.ch });
+                });
+            }
+            return res;
         }
 
         // ----- Dessin -----
 
-        dessinerCarte(carte, x, y, assombrie = false) {
-            const { ctx, carteL, carteH } = this;
+        dessinerCarte(carte, x, y, assombrie = false, carteL = this.carteL, carteH = this.carteH, jouable = false) {
+            const { ctx } = this;
             if (this.imgCartes) {
                 ctx.drawImage(
                     this.imgCartes,
@@ -163,10 +233,17 @@
                 ctx.fillRect(x, y, carteL, carteH);
             }
             if (assombrie) {
-                ctx.fillStyle = "rgba(0,0,0,0.4)";
+                ctx.fillStyle = "rgba(0,0,0,0.45)";
                 ctx.beginPath();
                 ctx.roundRect(x, y, carteL, carteH * 0.98, carteL * 0.06);
                 ctx.fill();
+            }
+            if (jouable) {
+                ctx.strokeStyle = "#ffd23f";
+                ctx.lineWidth = Math.max(2, carteL * 0.05);
+                ctx.beginPath();
+                ctx.roundRect(x + 1, y + 1, carteL - 2, carteH * 0.98 - 2, carteL * 0.07);
+                ctx.stroke();
             }
         }
 
@@ -266,28 +343,30 @@
 
         dessinerMain(cacher) {
             this.zones = [];
-            this.posMain().forEach(({ carte, jouable, x, y }) => {
+            const monTour = this.vue.tour === this.vue.moi;
+            this.posMain().forEach(({ carte, jouable, x, y, l, h }) => {
                 if (cacher && memeCarte(carte, cacher)) return;
-                const monTour = this.vue.tour === this.vue.moi;
-                this.dessinerCarte(carte, x, y, monTour && !jouable);
-                this.zones.push({ carte, jouable, x, y });
+                this.dessinerCarte(carte, x, y, monTour && !jouable, l, h, jouable);
+                this.zones.push({ carte, jouable, x, y, l, h });
             });
         }
 
         dessiner() {
             if (!this.vue) return;
             const { ctx } = this;
-            const fond = ctx.createRadialGradient(this.l / 2, this.h * 0.45, 0, this.l / 2, this.h * 0.45, Math.max(this.l, this.h) * 0.75);
+            const L = this.lTotal;
+            const H = this.hTotal;
+            const fond = ctx.createRadialGradient(L / 2, H * 0.45, 0, L / 2, H * 0.45, Math.max(L, H) * 0.75);
             fond.addColorStop(0, "#1b9474");
             fond.addColorStop(0.6, "#0d5f4b");
             fond.addColorStop(1, "#0a4a3b");
             ctx.fillStyle = fond;
-            ctx.fillRect(0, 0, this.l, this.h);
+            ctx.fillRect(0, 0, L, H);
             const a = this.anim;
             this.dessinerTable(a && a.carte);
             this.dessinerJoueurs();
             this.dessinerMain(a && a.carte);
-            if (a && a.carte) this.dessinerCarte(a.carte, a.x, a.y);
+            if (a && a.carte) this.dessinerCarte(a.carte, a.x, a.y, false, a.l, a.h);
             if (a && a.boite) this.dessinerBoite(a.x, a.y);
         }
 
@@ -305,7 +384,9 @@
                 const image = () => {
                     const p = Math.min(1, (performance.now() - t0) / duree);
                     const e = doux(p);
-                    this.anim = { ...base, x: depart.x + (arrivee.x - depart.x) * e, y: depart.y + (arrivee.y - depart.y) * e };
+                    const entre = (k) => depart[k] + (arrivee[k] - depart[k]) * e;
+                    this.anim = { ...base, x: entre("x"), y: entre("y") };
+                    if (depart.l) Object.assign(this.anim, { l: entre("l"), h: entre("h") });
                     this.dessiner();
                     if (p < 1) requestAnimationFrame(image);
                     else {
@@ -328,9 +409,11 @@
             this.vue = vue;
             if (!depart) {
                 const p = this.posAvatar(joueur);
-                depart = { x: p.x + this.avatar / 2 - this.carteL / 2, y: p.y + this.avatar / 2 - this.carteH / 2 };
+                depart = { x: p.x + this.avatar / 2 - this.carteL / 2, y: p.y + this.avatar / 2 - this.carteH / 2, l: this.carteL, h: this.carteH };
             }
-            return this.animer(DUREE_CARTE, depart, this.posTable(carte), { carte });
+            // La carte rapetisse de la taille de la main à celle de la table
+            const arrivee = { ...this.posTable(carte), l: this.carteL, h: this.carteH };
+            return this.animer(DUREE_CARTE, depart, arrivee, { carte });
         }
 
         animerBoite(vue, de, a) {
@@ -350,7 +433,7 @@
             const y = e.clientY - r.top;
             // La carte du dessus est la dernière dessinée
             const zone = [...this.zones].reverse().find(
-                (z) => x >= z.x && x <= z.x + this.carteL && y >= z.y && y <= z.y + this.carteH
+                (z) => x >= z.x && x <= z.x + z.l && y >= z.y && y <= z.y + z.h
             );
             if (zone) this.surCarte(zone.carte, zone.jouable);
         }

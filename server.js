@@ -25,6 +25,7 @@ const TYPES = {
     ".svg": "image/svg+xml",
     ".ico": "image/x-icon",
     ".txt": "text/plain; charset=utf-8",
+    ".webmanifest": "application/manifest+json; charset=utf-8",
 };
 
 const serveur = http.createServer((req, res) => {
@@ -69,6 +70,46 @@ function nouveauCode() {
 
 const nouveauJeton = () => crypto.randomBytes(16).toString("hex");
 
+// Mot de passe d'une partie : on garde seulement une empreinte salée, jamais le mot de passe lui-même.
+function empreinte(motDePasse, sel) {
+    // (SHA-256 salé : rapide, pour ne pas bloquer le serveur; les essais sont limités plus bas)
+    return crypto.createHmac("sha256", sel).update(String(motDePasse)).digest();
+}
+function verifierMotDePasse(salle, essai) {
+    if (!salle.motDePasse) return true;
+    const e = empreinte(essai || "", salle.motDePasse.sel);
+    return crypto.timingSafeEqual(e, salle.motDePasse.empreinte);
+}
+
+// ---------- Liste des parties ouvertes ----------
+// Les joueurs sur l'écran d'accueil reçoivent la liste en direct.
+
+const observateurs = new Set();
+let listeEnAttente = false;
+
+function listeSalles() {
+    return [...salles.values()]
+        .filter((s) => !s.partie && s.joueurs.length < MAX_HUMAINS && s.joueurs.some((j) => j.conn))
+        .map((s) => ({
+            code: s.code,
+            nom: s.nom,
+            joueurs: s.joueurs.map((j) => j.nom),
+            places: s.config.nb,
+            ptsMax: s.config.ptsMax,
+            protegee: !!s.motDePasse,
+        }));
+}
+
+function diffuserListe() {
+    if (listeEnAttente) return;
+    listeEnAttente = true;
+    setImmediate(() => {
+        listeEnAttente = false;
+        const msg = { t: "liste", salles: listeSalles() };
+        observateurs.forEach((c) => c.envoyer(msg));
+    });
+}
+
 function nettoyerNom(nom) {
     const n = String(nom || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 14);
     return n || "Joueur";
@@ -96,6 +137,8 @@ function diffuserSalle(salle) {
         j.conn.envoyer({
             t: "salle",
             code: salle.code,
+            nomSalle: salle.nom,
+            protegee: !!salle.motDePasse,
             jeton: j.jeton,
             nom: j.nom,
             estHote: j === hote,
@@ -104,6 +147,7 @@ function diffuserSalle(salle) {
             joueurs: salle.joueurs.map((k) => ({ nom: k.nom, connecte: !!k.conn, hote: k === hote })),
         });
     });
+    diffuserListe();
 }
 
 function demarrerPartie(salle) {
@@ -152,6 +196,7 @@ function quitter(salle, joueur, volontaire = false) {
 function supprimerSalle(salle) {
     if (salle.partie) salle.partie.detruire();
     salles.delete(salle.code);
+    diffuserListe();
     console.log(`[${salle.code}] salle fermée`);
 }
 
@@ -167,7 +212,9 @@ setInterval(() => {
 brancherWebSocket(serveur, "/ws", (conn) => {
     let salle = null;
     let joueur = null;
-    const erreur = (msg) => conn.envoyer({ t: "erreur", msg });
+    let essaisRates = 0;
+    let bloqueJusqua = 0;
+    const erreur = (msg, extra = {}) => conn.envoyer({ t: "erreur", msg, ...extra });
 
     conn.on("message", (texte) => {
         let m;
@@ -178,16 +225,31 @@ brancherWebSocket(serveur, "/ws", (conn) => {
         }
         if (!m || typeof m.t !== "string") return;
 
+        if (m.t === "lister") {
+            observateurs.add(conn);
+            conn.envoyer({ t: "liste", salles: listeSalles() });
+            return;
+        }
+
         if (m.t === "creer") {
             if (joueur) quitter(salle, joueur, true);
+            const nom = nettoyerNom(m.nom);
+            const motDePasse = typeof m.motDePasse === "string" ? m.motDePasse.slice(0, 30) : "";
             salle = {
                 code: nouveauCode(),
+                nom: `Partie de ${nom}`,
                 joueurs: [],
                 config: { nb: 4, ptsMax: 200 },
                 partie: null,
                 videDepuis: Date.now(),
+                motDePasse: null,
             };
-            joueur = { jeton: nouveauJeton(), nom: nettoyerNom(m.nom), conn };
+            if (motDePasse) {
+                const sel = crypto.randomBytes(16);
+                salle.motDePasse = { sel, empreinte: empreinte(motDePasse, sel) };
+            }
+            observateurs.delete(conn);
+            joueur = { jeton: nouveauJeton(), nom, conn };
             salle.jetonHote = joueur.jeton;
             salle.joueurs.push(joueur);
             salles.set(salle.code, salle);
@@ -197,10 +259,11 @@ brancherWebSocket(serveur, "/ws", (conn) => {
 
         if (m.t === "rejoindre") {
             const s = salles.get(String(m.code || "").toUpperCase().trim());
-            if (!s) return erreur("Cette salle n'existe pas (ou elle a expiré).");
+            if (!s) return erreur("Cette partie n'existe plus.", { introuvable: true });
             const ancien = m.jeton && s.joueurs.find((j) => j.jeton === m.jeton);
             if (ancien) {
-                // Retour d'un joueur (rechargement de la page, réseau coupé…)
+                // Retour d'un joueur (rechargement de la page, réseau coupé…) : pas besoin du mot de passe
+                observateurs.delete(conn);
                 const vieille = ancien.conn;
                 ancien.conn = conn;
                 clearTimeout(ancien.depart);
@@ -211,8 +274,21 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                 if (s.partie) s.partie.setConnecte(s.joueurs.indexOf(ancien), true);
                 return;
             }
-            if (s.partie) return erreur("La partie est déjà commencée dans cette salle.");
-            if (s.joueurs.length >= MAX_HUMAINS) return erreur("La salle est pleine.");
+            if (s.partie) return erreur("Cette partie est déjà commencée.", { introuvable: true });
+            if (s.joueurs.length >= MAX_HUMAINS) return erreur("Cette partie est pleine.");
+            if (s.motDePasse) {
+                // Quelques essais seulement, pour décourager qui voudrait deviner le mot de passe
+                if (Date.now() < bloqueJusqua) return erreur("Trop d'essais. Attends une minute.", { motDePasse: true, code: s.code });
+                if (!verifierMotDePasse(s, m.motDePasse)) {
+                    if (++essaisRates >= 5) {
+                        essaisRates = 0;
+                        bloqueJusqua = Date.now() + 60000;
+                    }
+                    return erreur(m.motDePasse ? "Mot de passe incorrect." : "Cette partie demande un mot de passe.", { motDePasse: true, code: s.code });
+                }
+            }
+            essaisRates = 0;
+            observateurs.delete(conn);
             if (joueur) quitter(salle, joueur, true);
             salle = s;
             joueur = { jeton: nouveauJeton(), nom: nomUnique(s, nettoyerNom(m.nom)), conn };
@@ -249,11 +325,14 @@ brancherWebSocket(serveur, "/ws", (conn) => {
             case "quitter":
                 quitter(salle, joueur, true);
                 salle = joueur = null;
+                observateurs.add(conn);
+                conn.envoyer({ t: "liste", salles: listeSalles() });
                 return;
         }
     });
 
     conn.on("close", () => {
+        observateurs.delete(conn);
         if (salle && joueur && joueur.conn === conn) quitter(salle, joueur);
     });
 });

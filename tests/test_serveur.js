@@ -15,6 +15,7 @@ function bot(nom, { paresseux = false } = {}) {
     b.ws.onmessage = (e) => {
       const m = JSON.parse(e.data); b.msgs.push(m);
       if (m.t === "salle") b.salle = m;
+      if (m.t === "liste") b.liste = m.salles;
       if (m.t === "etat") {
         b.etat = m.etat;
         // les autres ne doivent jamais voir ma main
@@ -42,17 +43,35 @@ function bot(nom, { paresseux = false } = {}) {
   for (const p of ["/%2e%2e/server.js", "/..%2fserver.js", "/js/..%2f..%2fserver.js"]) assert.notStrictEqual((await fetch(`http://localhost:${PORT}${p}`)).status, 200, p);
 
   const a = bot("Sam"), b = bot("Léa"), c = bot("Zoé", { paresseux: true });
-  await a.connecter(); a.envoyer({ t: "creer", nom: "Sam" }); await attendre(100);
+  // un observateur regarde la liste des parties
+  const obs = bot("Obs"); await obs.connecter(); obs.envoyer({ t: "lister" }); await attendre(100);
+  assert.deepStrictEqual(obs.liste, []);
+  await a.connecter(); a.envoyer({ t: "creer", nom: "Sam", motDePasse: "secret" }); await attendre(100);
   const code = a.salle.code; assert.match(code, /^[A-Z]{4}$/); assert(a.salle.estHote);
-  await b.connecter(); b.envoyer({ t: "rejoindre", code, nom: "Sam" }); await attendre(100);
+  assert.strictEqual(a.salle.nomSalle, "Partie de Sam"); assert(a.salle.protegee);
+  assert.strictEqual(obs.liste.length, 1); assert(obs.liste[0].protegee); assert.deepStrictEqual(obs.liste[0].joueurs, ["Sam"]);
+  assert(!JSON.stringify(obs.liste).includes("secret"), "le mot de passe ne circule pas");
+  await b.connecter();
+  b.envoyer({ t: "rejoindre", code, nom: "Sam" }); await attendre(100);
+  assert(!b.salle && b.msgs.at(-1).motDePasse, "mot de passe exigé");
+  b.envoyer({ t: "rejoindre", code, nom: "Sam", motDePasse: "mauvais" }); await attendre(100);
+  assert(!b.salle && /incorrect/.test(b.msgs.at(-1).msg));
+  b.envoyer({ t: "rejoindre", code, nom: "Sam", motDePasse: "secret" }); await attendre(100);
   assert.strictEqual(b.salle.nom, "Sam 2"); // nom unique
-  await c.connecter(); c.envoyer({ t: "rejoindre", code: code.toLowerCase(), nom: "Zoé" }); await attendre(100);
+  assert.strictEqual(obs.liste[0].joueurs.length, 2, "la liste se met à jour");
+  await c.connecter(); c.envoyer({ t: "rejoindre", code: code.toLowerCase(), nom: "Zoé", motDePasse: "secret" }); await attendre(100);
+  // trop d'essais : blocage
+  const pirate = bot("P"); await pirate.connecter();
+  for (let k = 0; k < 6; k++) { pirate.envoyer({ t: "rejoindre", code, nom: "P", motDePasse: "x" + k }); await attendre(20); }
+  pirate.envoyer({ t: "rejoindre", code, nom: "P", motDePasse: "secret" }); await attendre(50);
+  assert(/Trop d'essais/.test(pirate.msgs.at(-1).msg), "blocage après 5 essais");
   b.envoyer({ t: "demarrer" }); await attendre(50);
   assert(b.msgs.some((m) => m.t === "erreur"), "seul l'hôte démarre");
   a.envoyer({ t: "config", nb: 4, ptsMax: 100 }); await attendre(50);
   assert.strictEqual(c.salle.config.nb, 4);
   a.envoyer({ t: "demarrer" }); await attendre(200);
   assert(c.salle.enJeu);
+  assert.deepStrictEqual(obs.liste, [], "une partie commencée n'est plus dans la liste");
   assert.strictEqual(a.etat.joueurs.length, 4);
   assert(a.etat.joueurs[3].ia);
   // un intrus ne peut pas entrer pendant la partie
@@ -66,7 +85,7 @@ function bot(nom, { paresseux = false } = {}) {
   await attendre(300);
   const jetonB = b.salle.jeton; b.ws.close(); await attendre(500);
   assert(a.etat.joueurs[1].connecte === false, "B affiché absent");
-  const b2 = bot("Léa"); await b2.connecter(); b2.envoyer({ t: "rejoindre", code, jeton: jetonB }); await attendre(200);
+  const b2 = bot("Léa"); await b2.connecter(); b2.envoyer({ t: "rejoindre", code, jeton: jetonB }); await attendre(200); // sans mot de passe : le jeton suffit
   assert.strictEqual(b2.salle.nom, "Sam 2"); assert(b2.etat && b2.etat.moi === 1);
   // on laisse la partie se finir
   const t0 = Date.now();

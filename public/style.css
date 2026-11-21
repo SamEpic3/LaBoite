@@ -12,7 +12,29 @@ html, body {
     -webkit-tap-highlight-color: transparent;
 }
 
-canvas { display: block; touch-action: manipulation; }
+/* Le canvas couvre tout l'écran, y compris sous l'encoche; le jeu se dessine dans les marges de sécurité. */
+canvas {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Bande unie sous la barre d'état de l'iPhone : évite la zone floue en haut de l'écran. */
+.barre-haut {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: #0d5f4b;
+    z-index: 50;
+    pointer-events: none;
+}
 
 /* ----- Menus ----- */
 
@@ -21,11 +43,13 @@ canvas { display: block; touch-action: manipulation; }
     inset: 0;
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: safe center;
     align-items: center;
     gap: 12px;
-    padding: 20px;
+    padding: calc(env(safe-area-inset-top) + 20px) calc(env(safe-area-inset-right) + 20px)
+             calc(env(safe-area-inset-bottom) + 20px) calc(env(safe-area-inset-left) + 20px);
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .ecran h1 {
@@ -37,9 +61,8 @@ canvas { display: block; touch-action: manipulation; }
 }
 
 .logo {
-    width: min(150px, 34vw);
-    border-radius: 18px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    width: min(170px, 38vw);
+    filter: drop-shadow(0 10px 18px rgba(0,0,0,0.35));
     transform: rotate(-4deg);
 }
 
@@ -107,7 +130,24 @@ button.secondaire:active { transform: translateY(1px); }
     padding: 6px 0 6px 0.3em;
 }
 
-.liste-joueurs { list-style: none; margin: 0; padding: 0; }
+.liste-joueurs, .liste-parties { list-style: none; margin: 0; padding: 0; }
+.liste-parties li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.15);
+}
+.liste-parties li:last-child { border-bottom: none; }
+.liste-parties li.invitee { background: rgba(255, 223, 126, 0.12); border-radius: 10px; padding: 10px; }
+.liste-parties .details { flex: 1; min-width: 150px; }
+.liste-parties .details strong { display: block; }
+.liste-parties .details span { font-size: 0.88rem; opacity: 0.8; }
+.liste-parties button { width: auto; padding: 9px 16px; font-size: 0.98rem; }
+.liste-parties .zone-mdp { display: flex; gap: 8px; width: 100%; }
+.liste-parties .zone-mdp input { flex: 1; min-width: 0; }
+.liste-parties .msg { width: 100%; color: #ffd0d8; font-size: 0.9rem; margin: 0; }
 .liste-joueurs li { padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.15); }
 .petit { font-size: 0.9rem; opacity: 0.85; margin: 0; text-align: center; }
 .erreur { color: white; background: #c23a4f; padding: 8px 12px; border-radius: 10px; }
@@ -117,8 +157,8 @@ button.secondaire:active { transform: translateY(1px); }
 
 .info {
     position: fixed;
-    top: 8px;
-    left: 8px;
+    top: calc(env(safe-area-inset-top) + 8px);
+    left: calc(env(safe-area-inset-left) + 8px);
     max-width: min(60vw, 420px);
     font-size: clamp(12px, 1.8vw, 16px);
     background: rgba(0,0,0,0.25);
@@ -131,8 +171,8 @@ button.secondaire:active { transform: translateY(1px); }
 
 .pointage {
     position: fixed;
-    top: 8px;
-    right: 8px;
+    top: calc(env(safe-area-inset-top) + 8px);
+    right: calc(env(safe-area-inset-right) + 8px);
     min-width: 130px;
     font-size: clamp(11px, 1.6vw, 14px);
     background: rgba(0,0,0,0.25);
@@ -151,7 +191,9 @@ button.secondaire:active { transform: translateY(1px); }
     justify-content: center;
     align-items: center;
     background: rgba(0,0,0,0.45);
-    padding: 16px;
+    padding: calc(env(safe-area-inset-top) + 16px) calc(env(safe-area-inset-right) + 16px)
+             calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px);
+    z-index: 10;
 }
 .boite-dialogue {
     background: linear-gradient(#137a60, #0d5f4b);
@@ -188,8 +230,8 @@ button.secondaire:active { transform: translateY(1px); }
 
 .bouton-coin {
     position: fixed;
-    left: 10px;
-    bottom: 10px;
+    left: calc(env(safe-area-inset-left) + 10px);
+    bottom: calc(env(safe-area-inset-bottom) + 10px);
     width: auto;
     padding: 7px 14px;
     font-size: 0.9rem;

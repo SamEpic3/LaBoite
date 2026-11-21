@@ -15,8 +15,10 @@
     };
 
     try { $("#nom").value = localStorage.getItem("laboite-nom") || ""; } catch (e) {}
-    const codeLien = new URLSearchParams(location.search).get("salle");
-    if (codeLien) $("#code").value = codeLien.toUpperCase();
+    // Lien d'invitation : ?salle=CODE met cette partie en évidence dans la liste
+    const codeLien = (new URLSearchParams(location.search).get("salle") || "").toUpperCase();
+    let derniereListe = [];
+    const mdpOuverts = new Set(); // parties protégées dont le champ de mot de passe est ouvert
 
     let ws = null;
     let essais = 0;
@@ -36,9 +38,13 @@
             essais = 0;
             $("#etat-connexion").textContent = "";
             const session = lireSession();
-            if (session) envoyer({ t: "rejoindre", code: session.code, jeton: session.jeton, nom: session.nom });
-            else if (attenteEnvoi) envoyer(attenteEnvoi);
+            const enAttente = attenteEnvoi;
             attenteEnvoi = null;
+            if (session) envoyer({ t: "rejoindre", code: session.code, jeton: session.jeton, nom: session.nom });
+            else {
+                envoyer({ t: "lister" });
+                if (enAttente) envoyer(enAttente);
+            }
         };
         ws.onmessage = (e) => recevoir(JSON.parse(e.data));
         ws.onclose = () => {
@@ -62,12 +68,27 @@
     }
 
     function recevoir(m) {
+        if (m.t === "liste") {
+            derniereListe = m.salles;
+            return afficherListe();
+        }
         if (m.t === "erreur") {
             if (client && salle && salle.enJeu) return client.erreur(m.msg);
-            // Salle disparue (serveur redémarré, salle expirée) : on revient à l'accueil.
-            if (/n'existe pas|déjà commencée|pleine/.test(m.msg)) {
+            if (m.motDePasse) {
+                // Mauvais mot de passe : le message s'affiche sous la partie concernée
+                mdpOuverts.add(m.code);
+                messagesParties[m.code] = m.msg;
+                afficherListe();
+                const champ = document.querySelector(`[data-mdp="${m.code}"]`);
+                if (champ) champ.focus();
+                return;
+            }
+            if (m.introuvable) {
+                // Partie disparue (serveur redémarré, partie commencée ou expirée) : retour à l'accueil.
                 ecrireSession(null);
+                salle = null;
                 montrer("accueil");
+                envoyer({ t: "lister" });
             }
             return erreurAccueil(m.msg);
         }
@@ -87,9 +108,65 @@
         if (m.t === "etat" && client) client.recevoir(m);
     }
 
+    const messagesParties = {};
+
+    function afficherListe() {
+        const liste = $("#liste-parties");
+        liste.innerHTML = "";
+        $("#aucune-partie").textContent = "Aucune partie ouverte pour l'instant. Crée la tienne !";
+        $("#aucune-partie").classList.toggle("cache", derniereListe.length > 0);
+        // La partie du lien d'invitation en premier
+        const triees = [...derniereListe].sort((a, b) => (b.code === codeLien) - (a.code === codeLien));
+        triees.forEach((p) => {
+            const li = creerElement("li", { class: p.code === codeLien ? "invitee" : "" });
+            const details = creerElement("div", { class: "details" },
+                creerElement("strong", {}, (p.protegee ? "🔒 " : "") + p.nom),
+                creerElement("span", {}, `${p.joueurs.length} / ${p.places} joueurs · ${p.joueurs.join(", ")} · fin à ${p.ptsMax}`));
+            const bouton = creerElement("button", {}, "Rejoindre");
+            li.append(details, bouton);
+            if (p.protegee && mdpOuverts.has(p.code)) {
+                const champ = creerElement("input", {
+                    "data-mdp": p.code, placeholder: "Mot de passe", autocomplete: "off",
+                    autocapitalize: "off", spellcheck: "false", maxlength: "30",
+                });
+                champ.value = champsMdp[p.code] || "";
+                champ.oninput = () => (champsMdp[p.code] = champ.value);
+                champ.onkeydown = (e) => e.key === "Enter" && rejoindre(p);
+                li.append(creerElement("div", { class: "zone-mdp" }, champ));
+            }
+            if (messagesParties[p.code]) li.append(creerElement("p", { class: "msg" }, messagesParties[p.code]));
+            bouton.onclick = () => rejoindre(p);
+            liste.append(li);
+        });
+        // Garder le curseur dans le champ de mot de passe quand la liste se met à jour
+        if (focusMdp) {
+            const champ = document.querySelector(`[data-mdp="${focusMdp}"]`);
+            if (champ) champ.focus();
+        }
+    }
+
+    const champsMdp = {};
+    let focusMdp = null;
+    document.addEventListener("focusin", (e) => (focusMdp = e.target.dataset && e.target.dataset.mdp) || null);
+
+    function rejoindre(p) {
+        const nom = nomChoisi();
+        if (!nom) return;
+        if (p.protegee && !mdpOuverts.has(p.code)) {
+            mdpOuverts.add(p.code);
+            afficherListe();
+            const champ = document.querySelector(`[data-mdp="${p.code}"]`);
+            if (champ) champ.focus();
+            return;
+        }
+        delete messagesParties[p.code];
+        envoyer({ t: "rejoindre", code: p.code, nom, motDePasse: champsMdp[p.code] || "" });
+    }
+
     function afficherAttente(s) {
         montrer("attente");
-        $("#code-salle").textContent = s.code;
+        $("#titre-salle").textContent = s.nomSalle || "Salle d'attente";
+        $("#salle-protegee").classList.toggle("cache", !s.protegee);
         const liste = $("#liste-joueurs");
         liste.innerHTML = "";
         s.joueurs.forEach((j) => {
@@ -144,16 +221,7 @@
 
     $("#btn-creer").onclick = () => {
         const nom = nomChoisi();
-        if (nom) envoyer({ t: "creer", nom });
-    };
-
-    $("#form-rejoindre").onsubmit = (e) => {
-        e.preventDefault();
-        const nom = nomChoisi();
-        const code = $("#code").value.trim().toUpperCase();
-        if (!nom) return;
-        if (code.length !== 4) return erreurAccueil("Le code de la salle a 4 lettres.");
-        envoyer({ t: "rejoindre", code, nom });
+        if (nom) envoyer({ t: "creer", nom, motDePasse: $("#mdp-creer").value });
     };
 
     const envoyerConfig = () => envoyer({ t: "config", nb: Number($("#nb").value), ptsMax: Number($("#pts").value) });
@@ -172,7 +240,7 @@
     $("#btn-partager").onclick = async () => {
         const lien = `${location.origin}${location.pathname}?salle=${salle.code}`;
         try {
-            if (navigator.share) await navigator.share({ title: "La boîte", text: `Viens jouer à La boîte ! Code : ${salle.code}`, url: lien });
+            if (navigator.share) await navigator.share({ title: "La boîte", text: `Viens jouer à La boîte avec moi ! (${salle.nomSalle})`, url: lien });
             else {
                 await navigator.clipboard.writeText(lien);
                 $("#btn-partager").textContent = "Lien copié !";
