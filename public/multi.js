@@ -217,12 +217,26 @@
             envoyer: (carte) => envoyer({ t: "jouer", carte }),
             reagir: (id) => envoyer({ t: "reaction", id }),
             rejouer: null,
-            menu: () => {
-                envoyer({ t: "quitter" });
-                ecrireSession(null);
-                location.href = "index.html";
-            },
+            menu: () => quitterPartie("index.html"),
+            quitter: () => quitterPartie("multi.html"),
         });
+    }
+
+    // Quitter pour de bon : on oublie la place gardée pour cet onglet (sinon, en revenant
+    // dans le menu multijoueur, on serait renvoyé dans la partie), on prévient le serveur,
+    // puis on change de page quand le message est bien parti.
+    function quitterPartie(page) {
+        ecrireSession(null);
+        salle = null;
+        envoyer({ t: "quitter" });
+        const debut = Date.now();
+        const partir = () => {
+            if (ws && ws.readyState === WebSocket.OPEN && ws.bufferedAmount > 0 && Date.now() - debut < 1500) {
+                return setTimeout(partir, 50);
+            }
+            location.replace(page);
+        };
+        setTimeout(partir, 100);
     }
 
     // ----- Boutons -----

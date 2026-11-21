@@ -22,7 +22,9 @@
         // suivante() : passe à la manche suivante (null = elle part toute seule après un décompte)
         // arreter() : arrête la partie (null = pas de bouton)
         // reagir(id) : envoie une réaction (null = pas de bouton de réactions)
-        constructor({ conteneur, envoyer, rejouer, menu, suivante = null, arreter = null, reagir = null }) {
+        // quitter() : quitte la partie multijoueur (null = pas de bouton)
+        constructor({ conteneur, envoyer, rejouer, menu, suivante = null, arreter = null, reagir = null, quitter = null }) {
+            this.quitter = quitter;
             this.reagir = reagir;
             this.sons = window.Sons ? new Sons() : null;
             this.envoyer = envoyer;
@@ -40,7 +42,11 @@
             this.info = el("div", { class: "info" });
             this.pointage = el("div", { class: "pointage" });
             this.fenetre = el("div", { class: "fenetre cache" });
-            this.boutonArret = el("button", { class: "bouton-coin cache", onclick: () => this.confirmerArret() }, "Arrêter");
+            // En bas à gauche : « Arrêter » en solo, « Quitter » en multijoueur
+            this.boutonArret = el("button", {
+                class: "bouton-coin cache",
+                onclick: () => (quitter ? this.confirmerQuitter() : this.confirmerArret()),
+            }, quitter ? "Quitter" : "Arrêter");
             // En bas à droite : le son, et les réactions en multijoueur
             this.boutonSon = el("button", { class: "bouton-rond", title: "Son", onclick: () => this.basculerSon() });
             this.coinDroit = el("div", { class: "coin-droit" });
@@ -196,7 +202,7 @@
             this.majPointage();
             this.majInfo();
             this.rendu.setVue(etat);
-            this.boutonArret.classList.toggle("cache", !this.arreter || etat.phase === "finPartie");
+            this.boutonArret.classList.toggle("cache", !(this.arreter || this.quitter) || etat.phase === "finPartie");
             // C'est à moi : petit son (et vibration sur Android)
             const monTour = (v) => v && v.phase === "jeu" && v.tour === v.moi;
             if (monTour(etat) && etat.jouables.length && (!monTour(ancienne) || ev.type === "manche")) {
@@ -379,6 +385,16 @@
                 el("p", {}, "Le joueur qui a le moins de points maintenant gagne. La manche en cours ne compte pas."),
                 el("div", { class: "boutons" },
                     el("button", { onclick: () => this.arreter() }, "Arrêter la partie"),
+                    el("button", { class: "secondaire", onclick: () => this.fenetre.classList.add("cache") }, "Continuer à jouer"))
+            );
+        }
+
+        confirmerQuitter() {
+            this.ouvrirFenetre(
+                el("h2", {}, "Quitter la partie ?"),
+                el("p", {}, "L'ordinateur prendra ta place, avec tes cartes et tes points. Quelqu'un d'autre pourra ensuite la prendre."),
+                el("div", { class: "boutons" },
+                    el("button", { onclick: (e) => { e.target.disabled = true; this.quitter(); } }, "Quitter la partie"),
                     el("button", { class: "secondaire", onclick: () => this.fenetre.classList.add("cache") }, "Continuer à jouer"))
             );
         }
