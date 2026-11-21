@@ -109,6 +109,7 @@
     }
 
     const messagesParties = {};
+    const texteDelai = (d) => (d ? `${d === 60 ? "1 min" : d + " s"} par tour` : "temps illimité");
 
     function afficherListe() {
         const liste = $("#liste-parties");
@@ -121,7 +122,7 @@
             const li = creerElement("li", { class: p.code === codeLien ? "invitee" : "" });
             const details = creerElement("div", { class: "details" },
                 creerElement("strong", {}, (p.protegee ? "🔒 " : "") + p.nom),
-                creerElement("span", {}, `${p.joueurs.length} / ${p.places} joueurs · ${p.joueurs.join(", ")} · fin à ${p.ptsMax}`));
+                creerElement("span", {}, `${p.joueurs.length} / ${p.places} joueurs · ${p.joueurs.join(", ")} · fin à ${p.ptsMax} · ${texteDelai(p.delai)}`));
             const bouton = creerElement("button", {}, "Rejoindre");
             li.append(details, bouton);
             if (p.protegee && mdpOuverts.has(p.code)) {
@@ -183,9 +184,10 @@
         }
         nb.value = String(s.config.nb);
         $("#pts").value = String(s.config.ptsMax);
+        $("#delai").value = String(s.config.delai);
         const ia = s.config.nb - s.joueurs.length;
         $("#resume-config").textContent =
-            `${s.config.nb} joueurs` + (ia > 0 ? ` (${ia} à l'ordinateur)` : "") + ` · fin à ${s.config.ptsMax} points · 30 s par tour`;
+            `${s.config.nb} joueurs` + (ia > 0 ? ` (${ia} à l'ordinateur)` : "") + ` · fin à ${s.config.ptsMax} points · ${texteDelai(s.config.delai)}`;
         $("#options-hote").classList.toggle("cache", !s.estHote);
         $("#btn-demarrer").classList.toggle("cache", !s.estHote);
         $("#attente-hote").classList.toggle("cache", s.estHote);
@@ -224,9 +226,12 @@
         if (nom) envoyer({ t: "creer", nom, motDePasse: $("#mdp-creer").value });
     };
 
-    const envoyerConfig = () => envoyer({ t: "config", nb: Number($("#nb").value), ptsMax: Number($("#pts").value) });
+    const envoyerConfig = () => envoyer({
+        t: "config", nb: Number($("#nb").value), ptsMax: Number($("#pts").value), delai: Number($("#delai").value),
+    });
     $("#nb").onchange = envoyerConfig;
     $("#pts").onchange = envoyerConfig;
+    $("#delai").onchange = envoyerConfig;
     $("#btn-demarrer").onclick = () => envoyer({ t: "demarrer" });
 
     $("#btn-quitter").onclick = () => {

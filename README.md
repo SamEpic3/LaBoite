@@ -52,4 +52,4 @@ Le forfait gratuit met le serveur en veille quand personne ne joue. La première
 - La manche finit quand quelqu'un n'a plus de cartes. Les autres comptent leurs cartes : as = 15, figures = 10, les autres leur valeur. La boîte vaut 20 points.
 - La partie finit quand quelqu'un atteint le maximum (200 par défaut). Le plus petit pointage gagne.
 - En multijoueur, on choisit une partie dans la liste des parties ouvertes. Le créateur peut la protéger par un mot de passe.
-- En multijoueur, tu as 30 secondes pour jouer. Ensuite, l'ordinateur joue à ta place. Si un joueur se déconnecte, l'ordinateur joue pour lui jusqu'à son retour.
+- En multijoueur, l'hôte choisit le temps par tour (illimité, 15 s, 30 s ou 1 min). Quand le temps est écoulé, l'ordinateur joue à ta place. Si un joueur se déconnecte, l'ordinateur joue pour lui jusqu'à son retour.

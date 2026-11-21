@@ -97,6 +97,19 @@ function bot(nom, { paresseux = false } = {}) {
   a.envoyer({ t: "rejouer" }); await attendre(200);
   assert.strictEqual(a.etat.phase === "jeu" || a.etat.phase === "finManche", true);
   assert(a.etat.joueurs.every((j) => j.points <= 120));
+  // partie sans limite de temps : pas de minuterie, l'ordinateur ne joue pas à la place
+  const h = bot("H", { paresseux: true }), g = bot("G", { paresseux: true });
+  await h.connecter(); h.envoyer({ t: "creer", nom: "H" }); await attendre(80);
+  await g.connecter(); g.envoyer({ t: "rejoindre", code: h.salle.code, nom: "G" }); await attendre(80);
+  h.envoyer({ t: "config", nb: 2, ptsMax: 100, delai: 0 }); await attendre(50);
+  assert.strictEqual(g.salle.config.delai, 0);
+  h.envoyer({ t: "demarrer" }); await attendre(1000);
+  const vh = h.etat;
+  assert.strictEqual(vh.resteMs, null, "pas de minuterie");
+  assert.strictEqual(vh.phase, "jeu");
+  const nbAvant = vh.joueurs[vh.tour].nbCartes;
+  await attendre(800);
+  assert.strictEqual(h.etat.joueurs[h.etat.tour].nbCartes, nbAvant, "personne ne joue à la place du joueur");
   console.log("serveur OK");
   srv.kill(); process.exit(0);
 })().catch((e) => { console.error(e); srv.kill(); process.exit(1); });

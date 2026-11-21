@@ -10,7 +10,7 @@ const Hote = require("./public/js/hote.js");
 const PORT = Number(process.env.PORT) || 3000;
 const DOSSIER_PUBLIC = path.join(__dirname, "public");
 const TEST = process.env.LABOITE_TEST === "1"; // délais très courts pour les tests automatiques
-const DELAI_TOUR = TEST ? 300 : 30000; // 30 s pour jouer, ensuite l'ordinateur joue à ta place
+const DELAIS_PERMIS = [0, 15, 30, 60]; // secondes par tour choisies par l'hôte (0 = illimité)
 const MAX_HUMAINS = 8;
 const DUREE_VIE_SALLE_VIDE = 10 * 60 * 1000;
 
@@ -96,6 +96,7 @@ function listeSalles() {
             joueurs: s.joueurs.map((j) => j.nom),
             places: s.config.nb,
             ptsMax: s.config.ptsMax,
+            delai: s.config.delai,
             protegee: !!s.motDePasse,
         }));
 }
@@ -151,12 +152,14 @@ function diffuserSalle(salle) {
 }
 
 function demarrerPartie(salle) {
-    const { nb, ptsMax } = salle.config;
+    const { nb, ptsMax, delai } = salle.config;
+    // Après ce délai, l'ordinateur joue à la place du joueur (null = pas de limite)
+    const delaiTour = delai ? (TEST ? 300 : delai * 1000) : null;
     const total = Math.max(nb, salle.joueurs.length);
     salle.partie = new Hote({
         joueurs: Hote.completerAvecIA(salle.joueurs.map((j) => ({ nom: j.nom, avatar: "lettre" })), total),
         ptsMax,
-        delaiTour: DELAI_TOUR,
+        delaiTour,
         ...(TEST ? { delaiIA: 5, delaiBoite: 5, delaiManche: 20 } : {}),
         envoyer: (i, msg) => {
             const j = salle.joueurs[i];
@@ -239,7 +242,7 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                 code: nouveauCode(),
                 nom: `Partie de ${nom}`,
                 joueurs: [],
-                config: { nb: 4, ptsMax: 200 },
+                config: { nb: 4, ptsMax: 200, delai: 30 },
                 partie: null,
                 videDepuis: Date.now(),
                 motDePasse: null,
@@ -306,6 +309,7 @@ brancherWebSocket(serveur, "/ws", (conn) => {
                 salle.config = {
                     nb: Math.max(2, salle.joueurs.length, Math.min(8, Number(m.nb) || 4)),
                     ptsMax: [100, 200, 300, 500].includes(Number(m.ptsMax)) ? Number(m.ptsMax) : 200,
+                    delai: DELAIS_PERMIS.includes(Number(m.delai)) ? Number(m.delai) : 30,
                 };
                 return diffuserSalle(salle);
             case "demarrer":
