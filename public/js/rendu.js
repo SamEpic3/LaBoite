@@ -420,13 +420,21 @@
             ctx.fillRect(0, 0, L, H);
             // En haut et en bas, le dégradé se fond dans la couleur de bord (la même que celle que
             // l'iPhone met sous la barre d'état et la barre d'accueil) : pas de coupure nette.
-            const solideHaut = Math.min(H * 0.4, this.y0 + 24);
-            const haut = ctx.createLinearGradient(0, 0, 0, solideHaut + H * 0.22);
+            // Même hauteur que la bande unie du haut (.barre-haut dans style.css)
+            const bande = document.querySelector(".barre-haut");
+            const solideHaut = Math.min(H * 0.4, bande ? bande.getBoundingClientRect().height : this.y0 + 24);
+            // Fondu en douceur (courbe en S) pour qu'on ne voie pas où finit la bande unie
+            const fondu = H * 0.3;
+            const haut = ctx.createLinearGradient(0, 0, 0, solideHaut + fondu);
             haut.addColorStop(0, COULEUR_BORD);
-            haut.addColorStop(solideHaut / (solideHaut + H * 0.22), COULEUR_BORD);
-            haut.addColorStop(1, COULEUR_BORD + "00");
+            for (let k = 0; k <= 10; k++) {
+                const t = k / 10;
+                const opacite = 1 - t * t * (3 - 2 * t);
+                const alpha = Math.round(opacite * 255).toString(16).padStart(2, "0");
+                haut.addColorStop((solideHaut + t * fondu) / (solideHaut + fondu), COULEUR_BORD + alpha);
+            }
             ctx.fillStyle = haut;
-            ctx.fillRect(0, 0, L, solideHaut + H * 0.22);
+            ctx.fillRect(0, 0, L, solideHaut + fondu);
             const bas = ctx.createLinearGradient(0, H * 0.8, 0, H);
             bas.addColorStop(0, COULEUR_BORD + "00");
             bas.addColorStop(1, COULEUR_BORD);

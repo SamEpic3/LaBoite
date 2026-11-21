@@ -2,7 +2,7 @@
 // Stratégie « réseau d'abord » pour les pages et le code : on a toujours la dernière version
 // quand on est en ligne, et la copie en cache sert seulement hors ligne.
 // Changer VERSION quand la liste de FICHIERS change.
-const VERSION = "laboite-v4";
+const VERSION = "laboite-v5";
 const FICHIERS = [
     "./", "./index.html", "./solo.html", "./multi.html", "./style.css", "./manifest.webmanifest",
     "./solo.js", "./multi.js", "./js/regles.js", "./js/hote.js", "./js/rendu.js", "./js/client.js", "./js/pwa.js", "./js/sons.js",
