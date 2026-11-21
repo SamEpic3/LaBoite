@@ -1,0 +1,83 @@
+// Test de bout en bout : démarre le serveur en mode test, joue une partie complète
+// à 3 humains (+1 ordinateur), avec une déconnexion/reconnexion et un joueur qui laisse filer le temps.
+const { spawn } = require("child_process");
+const assert = require("assert");
+const path = require("path");
+const PORT = 3999;
+const srv = spawn("node", [path.join(__dirname, "..", "server.js")], { env: { ...process.env, PORT, LABOITE_TEST: "1" }, stdio: ["ignore", "pipe", "inherit"] });
+const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function bot(nom, { paresseux = false } = {}) {
+  const b = { nom, msgs: [], salle: null, etat: null };
+  b.connecter = () => new Promise((ok) => {
+    b.ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+    b.ws.onopen = ok;
+    b.ws.onmessage = (e) => {
+      const m = JSON.parse(e.data); b.msgs.push(m);
+      if (m.t === "salle") b.salle = m;
+      if (m.t === "etat") {
+        b.etat = m.etat;
+        // les autres ne doivent jamais voir ma main
+        assert.strictEqual(m.etat.main.length, m.etat.joueurs[m.etat.moi].nbCartes);
+        if (m.etat.tour >= 0 && m.etat.joueurs[m.etat.tour].ia) assert.strictEqual(m.etat.resteMs, null, "pas de minuterie pour l'ordinateur");
+        const v = m.etat;
+        if (!paresseux && v.phase === "jeu" && v.tour === v.moi && v.jouables.length) {
+          const c = v.jouables[Math.floor(Math.random() * v.jouables.length)];
+          setTimeout(() => b.envoyer({ t: "jouer", carte: c }), 2);
+        }
+      }
+    };
+  });
+  b.envoyer = (m) => b.ws.readyState === 1 && b.ws.send(JSON.stringify(m));
+  return b;
+}
+
+(async () => {
+  await new Promise((ok) => srv.stdout.once("data", ok));
+  // fichiers statiques
+  for (const p of ["/", "/solo.html", "/multi.html", "/js/regles.js", "/images/cards_spritesheet.png"]) {
+    const r = await fetch(`http://localhost:${PORT}${p}`); assert.strictEqual(r.status, 200, p);
+  }
+  assert.strictEqual((await fetch(`http://localhost:${PORT}/../server.js`)).status === 200, false);
+  for (const p of ["/%2e%2e/server.js", "/..%2fserver.js", "/js/..%2f..%2fserver.js"]) assert.notStrictEqual((await fetch(`http://localhost:${PORT}${p}`)).status, 200, p);
+
+  const a = bot("Sam"), b = bot("Léa"), c = bot("Zoé", { paresseux: true });
+  await a.connecter(); a.envoyer({ t: "creer", nom: "Sam" }); await attendre(100);
+  const code = a.salle.code; assert.match(code, /^[A-Z]{4}$/); assert(a.salle.estHote);
+  await b.connecter(); b.envoyer({ t: "rejoindre", code, nom: "Sam" }); await attendre(100);
+  assert.strictEqual(b.salle.nom, "Sam 2"); // nom unique
+  await c.connecter(); c.envoyer({ t: "rejoindre", code: code.toLowerCase(), nom: "Zoé" }); await attendre(100);
+  b.envoyer({ t: "demarrer" }); await attendre(50);
+  assert(b.msgs.some((m) => m.t === "erreur"), "seul l'hôte démarre");
+  a.envoyer({ t: "config", nb: 4, ptsMax: 100 }); await attendre(50);
+  assert.strictEqual(c.salle.config.nb, 4);
+  a.envoyer({ t: "demarrer" }); await attendre(200);
+  assert(c.salle.enJeu);
+  assert.strictEqual(a.etat.joueurs.length, 4);
+  assert(a.etat.joueurs[3].ia);
+  // un intrus ne peut pas entrer pendant la partie
+  const d = bot("Intrus"); await d.connecter(); d.envoyer({ t: "rejoindre", code, nom: "X" }); await attendre(50);
+  assert(d.msgs.some((m) => m.t === "erreur" && /commencée/.test(m.msg)));
+  // jouer hors tour est refusé
+  const hors = [a, b].find((x) => x.etat.phase === "jeu" && x.etat.tour !== x.etat.moi && x.etat.main.length);
+  if (hors) { const n = hors.msgs.length; hors.envoyer({ t: "jouer", carte: hors.etat.main[0] }); await attendre(50);
+    assert(hors.msgs.slice(n).some((m) => m.t === "erreur")); }
+  // déconnexion de B puis retour avec son jeton
+  await attendre(300);
+  const jetonB = b.salle.jeton; b.ws.close(); await attendre(500);
+  assert(a.etat.joueurs[1].connecte === false, "B affiché absent");
+  const b2 = bot("Léa"); await b2.connecter(); b2.envoyer({ t: "rejoindre", code, jeton: jetonB }); await attendre(200);
+  assert.strictEqual(b2.salle.nom, "Sam 2"); assert(b2.etat && b2.etat.moi === 1);
+  // on laisse la partie se finir
+  const t0 = Date.now();
+  while (!(a.etat && a.etat.phase === "finPartie")) { await attendre(100); assert(Date.now() - t0 < 120000, "partie trop longue"); }
+  assert(c.msgs.some((m) => m.t === "etat" && m.ev.tempsEcoule), "le temps du paresseux a été joué pour lui");
+  console.log("partie finie en", Date.now() - t0, "ms,", a.etat.manche, "manches :", a.etat.joueurs.map((j) => j.nom + "=" + j.points).join(" "),
+    "vainqueurs", a.etat.vainqueurs.map((i) => a.etat.joueurs[i].nom));
+  // rejouer
+  a.envoyer({ t: "rejouer" }); await attendre(200);
+  assert.strictEqual(a.etat.phase === "jeu" || a.etat.phase === "finManche", true);
+  assert(a.etat.joueurs.every((j) => j.points <= 120));
+  console.log("serveur OK");
+  srv.kill(); process.exit(0);
+})().catch((e) => { console.error(e); srv.kill(); process.exit(1); });

@@ -1,0 +1,47 @@
+Description:
+
+-52 cartes distribuées à tous les joueurs
+-Premier joueur avec le 7 de coeur commence et a la boîte
+-Le prochain joueur doit mettre un 7 ou une carte adjacente au 7 de coeur
+
+Variables:
+
+-number: nbPlayers
+-number: ptsMax
+-array: suits //['Hearts', 'Diamonds', 'Clubs', 'Spades']
+-array: values // 2 to 10, 15, 20 (box)
+-array: points // 15, 2, 3, 4...
+-array: deck
+-array: players
+-array: playedCards
+-object: player
+    -number: id
+    -number: points
+    -array: cards
+    -string: name
+-object: card
+    -string: suit
+    -string: value
+
+Interface:
+
+-Menu principal
+    -Choisir nombre joueurs
+    -Choisir nom et si joueur est un AI
+    -Démarrer la partie
+    -Choix du nombre de points max
+-En jeu
+    -Les cartes sont distribuées
+    -Celui avec le 7 de coeur se fait enlever sa carte
+    -Celui à sa gauche joue
+        -Possibilité de passer?
+        -Choix de la carte à jouer
+        -Updater les points
+        -Temps pour jouer?
+    -Si une suite complète, la mettre de côté
+    -Si le joueur n'a plus de carte, arrêter la manche et ajouter les points
+    -Si les points d'un joueur > ptsMax, arrêter partie
+-Fin de partie
+    -Affichage des points
+    -Menu principal
+    -Rejouer
